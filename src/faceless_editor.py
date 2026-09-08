@@ -354,6 +354,23 @@ def render_faceless_commentary_short(
             ]
             scene_start = round(valid_starts[0] if valid_starts else max(cand_start, punch_t - setup_budget), 2)
 
+        # Snap scene_start and scene_end cleanly to speech boundaries so words/sentences are never sliced mid-syllable
+        for idx, s in enumerate(transcript_segments):
+            if s.start < scene_start < s.end:
+                scene_start = round(s.start, 2)
+                break
+
+        for idx, s in enumerate(transcript_segments):
+            if s.start < scene_end < s.end:
+                # If cut falls right at the start of a new thought (< 2.0s in), snap back to previous segment
+                if (scene_end - s.start) < 2.0 and idx > 0:
+                    scene_end = round(transcript_segments[idx - 1].end, 2)
+                elif (s.end - scene_start) <= max_source_budget + 0.5:
+                    scene_end = round(s.end, 2)
+                else:
+                    scene_end = round(s.start, 2)
+                break
+
         # Split into Beat 2 (Setup Dialogue) and Beat 3 (Punchline & Reaction Payoff)
         # Find natural transcript segment boundary right before punchline
         pre_punch_segs = [

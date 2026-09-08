@@ -1,0 +1,17 @@
+﻿# Python cache
+__pycache__/
+*.py[cod]
+*.class
+.pytest_cache/
+
+# App temporary media
+temp/
+outputs/*.mp4
+outputs/*.mp3
+outputs/*.jpg
+outputs/*.png
+scratch_ref/
+
+# Sensitive keys
+.env
+.gemini_api_key

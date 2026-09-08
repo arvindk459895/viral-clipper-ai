@@ -247,3 +247,49 @@ def test_wrapped_diagram_text_never_overflows(tmp_path):
     generate_diagram_card(long_premise, long_subversion, out_png)
     assert out_png.exists()
     assert out_png.stat().st_size > 10000
+
+
+def test_complete_scene_narrative_flow(tmp_path):
+    """
+    Verifies that a full comedic scene with premise setup, punchline delivery,
+    and post-punchline reaction is rendered in its entirety without artificial hard cuts.
+    """
+    media = create_demo_media(output_dir=tmp_path, duration=30)
+    transcript = get_demo_transcript(30.0)
+
+    # 22-second comedic scene: setup from 2.0s, punchline at 14.0s, reaction through 24.0s
+    cand = CandidateClip(
+        clip_id="demo_full_story_01",
+        start_time=2.0,
+        end_time=24.0,
+        duration=22.0,
+        hook_start=2.0,
+        setup_start=2.0,
+        punchline_time=14.0,
+        reaction_end=24.0,
+        text="Toh maine gym join kiya, trainer bola goal kya hai? Maine bola goal bas ek hi hai bhai zinda rehna! Sab log hasne lage.",
+        audio_events=["laughter@14.5s"],
+        visual_energy=0.85,
+        estimated_score=95.0
+    )
+    script = generate_heuristic_commentary(cand)
+
+    out_mp4 = tmp_path / "test_full_story_short.mp4"
+    res = render_faceless_commentary_short(
+        video_path=media["video_path"],
+        audio_path=media["audio_path"],
+        candidate=cand,
+        script=script,
+        transcript_segments=transcript.segments,
+        voice_style="prabhat",
+        output_path=out_mp4,
+        top_header_text="FULL COMEDY STORY 😂"
+    )
+
+    assert Path(res["output_path"]).exists()
+    assert res["total_duration"] <= 58.0
+    # Crucial assertion: Total source video played MUST be >= 20.0s (full setup + punchline + reaction),
+    # proving it was NOT truncated at the old 10s hard cut!
+    assert res["originality_report"]["source_footage_sec"] >= 20.0
+    assert res["originality_report"]["originality_assessment"] in ["STRONG", "MODERATE"]
+

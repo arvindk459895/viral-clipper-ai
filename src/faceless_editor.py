@@ -290,55 +290,10 @@ def render_faceless_commentary_short(
 
     if visual_mode == "video_cutaway":
         # === RC HIDDEN / VIRAL SHORTS MODE: Engaging 6-Beat Reaction Short ===
-        # Beat 1: Hook (AI Voiceover with video PAUSED on opening moment)
+        # Beat 1 Duration (Hook)
         hook_dur = max(2.5, round(hook_v["duration_sec"] + 0.3, 2))
-        seg1_path = seg_dir / "seg1_hook.mp4"
-        _render_paused_frame_with_voiceover(
-            video_path=video_path,
-            frame_t=setup_start,
-            duration_t=hook_dur,
-            voiceover_audio_path=hook_v["audio_path"],
-            output_path=seg1_path
-        )
 
-        # Beat 2: Source Setup Dialogue (Video UNPAUSES and plays live dialogue at 100% volume)
-        seg2_start = setup_start
-        punch_t = candidate.punchline_time
-        if punch_t <= seg2_start + 1.0:
-            punch_t = seg2_start + 3.5
-        setup_end = max(seg2_start + 1.8, min(punch_t - 0.4, seg2_start + 6.0))
-        seg2_dur = round(setup_end - seg2_start, 2)
-        seg2_path = seg_dir / "seg2_setup.mp4"
-        _render_source_video_segment(video_path, audio_path, seg2_start, setup_end, seg2_path)
-
-        # Beat 3: Source Punchline & Climax (Original punchline dialogue lands live at 100% volume)
-        punch_start = setup_end
-        punch_end = min(clip_end, punch_start + 4.0)
-        if punch_end <= punch_start + 1.0:
-            punch_end = punch_start + 2.5
-        seg3_dur = round(punch_end - punch_start, 2)
-        seg3_path = seg_dir / "seg3_punchline.mp4"
-        _render_source_video_segment(video_path, audio_path, punch_start, punch_end, seg3_path)
-
-        # Beat 4: Clean Viral Meme Cutaway (RIGHT AFTER punchline, 1.2 to 2.0s)
-        seg4_path = seg_dir / "seg4_meme.mp4"
-        resolved_humor = humor_type or getattr(candidate, "humor_type", "unexpected_answer")
-        resolved_dialogue = dialogue_text or getattr(candidate, "text", "")
-        meme_file = select_video_meme_cutaway(
-            humor_type=resolved_humor,
-            emotion=ana_emo,
-            dialogue_text=resolved_dialogue,
-            clip_index=clip_index
-        )
-        if meme_file and Path(meme_file).exists():
-            _render_video_meme_segment(str(meme_file), seg4_path)
-            probe_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(seg4_path)]
-            meme_dur = float(subprocess.check_output(probe_cmd, text=True).strip())
-        else:
-            _render_image_audio_segment(visuals["hook_card"], context_v["audio_path"], context_v["duration_sec"], seg4_path)
-            meme_dur = context_v["duration_sec"]
-
-        # Beat 5: Roaster Verdict & Outro (Video PAUSES on reaction face while creator roasts + CTA)
+        # Beat 5 Audio & Duration (Outro Roaster Verdict & CTA)
         outro_text = clean_spoken_text(f"{script.analysis_reaction} {script.conclusion}")
         outro_v = generate_ai_voice(
             text=outro_text,
@@ -349,7 +304,100 @@ def render_faceless_commentary_short(
         )
         # Ensure outro duration ALWAYS covers the full generated voiceover audio + comfortable padding
         outro_dur = max(3.0, round(outro_v["duration_sec"] + 0.4, 2))
-        outro_frame_t = min(clip_end - 0.2, punch_end + 0.3)
+
+        # Beat 4 Meme Selection & Duration
+        resolved_humor = humor_type or getattr(candidate, "humor_type", "unexpected_answer")
+        resolved_dialogue = dialogue_text or getattr(candidate, "text", "")
+        meme_file = select_video_meme_cutaway(
+            humor_type=resolved_humor,
+            emotion=ana_emo,
+            dialogue_text=resolved_dialogue,
+            clip_index=clip_index
+        )
+        if meme_file and Path(meme_file).exists():
+            probe_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(meme_file)]
+            try:
+                raw_meme_dur = float(subprocess.check_output(probe_cmd, text=True).strip())
+                meme_dur = round(min(2.5, max(1.2, raw_meme_dur)), 2)
+            except Exception:
+                meme_dur = 1.8
+        else:
+            meme_dur = round(context_v["duration_sec"], 2)
+
+        # Dynamic YouTube Shorts Duration Budget (Max 58.0s to strictly stay within 60s limit)
+        MAX_TOTAL_SHORT_DUR = 58.0
+        ai_overhead = round(hook_dur + meme_dur + outro_dur, 2)
+        max_source_budget = max(20.0, round(MAX_TOTAL_SHORT_DUR - ai_overhead, 2))
+
+        # Calculate Scene Boundaries: Complete story setup through punchline and clean resolution
+        cand_start = candidate.start_time
+        punch_t = candidate.punchline_time
+        cand_end = candidate.end_time
+
+        if punch_t <= cand_start + 1.0:
+            punch_t = cand_start + 3.5
+        if cand_end <= punch_t + 1.0:
+            cand_end = punch_t + 3.0
+
+        req_dur = cand_end - cand_start
+        if req_dur <= max_source_budget:
+            scene_start = cand_start
+            scene_end = cand_end
+        else:
+            # When candidate duration exceeds Shorts budget, protect the punchline and payoff
+            payoff_dur = min(cand_end - punch_t, 14.0)
+            scene_end = round(min(cand_end, punch_t + payoff_dur), 2)
+            setup_budget = max_source_budget - (scene_end - punch_t)
+            valid_starts = [
+                s.start for s in transcript_segments
+                if max(cand_start, punch_t - setup_budget) <= s.start <= punch_t - 4.0
+            ]
+            scene_start = round(valid_starts[0] if valid_starts else max(cand_start, punch_t - setup_budget), 2)
+
+        # Split into Beat 2 (Setup Dialogue) and Beat 3 (Punchline & Reaction Payoff)
+        # Find natural transcript segment boundary right before punchline
+        pre_punch_segs = [
+            s.end for s in transcript_segments
+            if scene_start + 2.0 <= s.end <= punch_t - 0.2 and s.end <= scene_end - 2.0
+        ]
+        if pre_punch_segs:
+            split_t = round(pre_punch_segs[-1], 2)
+        else:
+            split_t = round(max(scene_start + 2.0, min(punch_t - 0.4, scene_end - 2.0)), 2)
+
+        # Beat 1: Hook (AI Voiceover with video PAUSED on opening moment)
+        seg1_path = seg_dir / "seg1_hook.mp4"
+        _render_paused_frame_with_voiceover(
+            video_path=video_path,
+            frame_t=scene_start,
+            duration_t=hook_dur,
+            voiceover_audio_path=hook_v["audio_path"],
+            output_path=seg1_path
+        )
+
+        # Beat 2: Source Setup Dialogue (Video UNPAUSES and plays live dialogue at 100% volume)
+        seg2_start = scene_start
+        setup_end = split_t
+        seg2_dur = round(setup_end - seg2_start, 2)
+        seg2_path = seg_dir / "seg2_setup.mp4"
+        _render_source_video_segment(video_path, audio_path, seg2_start, setup_end, seg2_path)
+
+        # Beat 3: Source Punchline & Climax (Original punchline dialogue lands live at 100% volume)
+        punch_start = setup_end
+        punch_end = scene_end
+        seg3_dur = round(punch_end - punch_start, 2)
+        seg3_path = seg_dir / "seg3_punchline.mp4"
+        _render_source_video_segment(video_path, audio_path, punch_start, punch_end, seg3_path)
+
+        # Beat 4: Clean Viral Meme Cutaway (RIGHT AFTER punchline, 1.2 to 2.0s)
+        seg4_path = seg_dir / "seg4_meme.mp4"
+        if meme_file and Path(meme_file).exists():
+            _render_video_meme_segment(str(meme_file), seg4_path)
+        else:
+            _render_image_audio_segment(visuals["hook_card"], context_v["audio_path"], context_v["duration_sec"], seg4_path)
+
+        # Beat 5: Roaster Verdict & Outro (Video PAUSES on reaction face while creator roasts + CTA)
+        outro_frame_t = round(max(punch_start + 1.0, min(clip_end - 0.2, punch_end - 0.1)), 2)
         seg5_path = seg_dir / "seg5_outro.mp4"
         _render_paused_frame_with_voiceover(
             video_path=video_path,
@@ -359,7 +407,7 @@ def render_faceless_commentary_short(
             output_path=seg5_path
         )
 
-        total_source_dur = round((clip_end - setup_start), 2)
+        total_source_dur = round(seg2_dur + seg3_dur, 2)
         total_ai_comm_dur = round(hook_dur + outro_dur, 2)
         total_ai_vis_dur = round(meme_dur, 2)
         total_short_dur = round(hook_dur + seg2_dur + seg3_dur + meme_dur + outro_dur, 2)
@@ -387,7 +435,8 @@ def render_faceless_commentary_short(
 
         # Setup words from source transcript
         for s in transcript_segments:
-            if s.end >= seg2_start and s.start <= setup_end:
+            s_mid = (s.start + s.end) / 2.0
+            if s.end >= seg2_start and s_mid < setup_end:
                 shift = cur_t - seg2_start
                 s_words = [
                     TranscriptWord(word=w.word, start=round(w.start + shift, 2), end=round(w.end + shift, 2))
@@ -404,7 +453,8 @@ def render_faceless_commentary_short(
 
         # Punchline words from source transcript
         for s in transcript_segments:
-            if s.end >= punch_start and s.start <= punch_end:
+            s_mid = (s.start + s.end) / 2.0
+            if s_mid >= punch_start and s.start <= punch_end:
                 shift = cur_t - punch_start
                 s_words = [
                     TranscriptWord(word=w.word, start=round(w.start + shift, 2), end=round(w.end + shift, 2))
@@ -440,11 +490,28 @@ def render_faceless_commentary_short(
 
     else:
         # === DIAGRAM CARD FALLBACK ===
-        setup_end = max(setup_start + 2.5, min(punch_t - 0.5, setup_start + 7.0))
+        cand_start = candidate.start_time
+        punch_t = candidate.punchline_time
+        cand_end = candidate.end_time
+        if punch_t <= cand_start + 1.0:
+            punch_t = cand_start + 3.5
+        if cand_end <= punch_t + 1.0:
+            cand_end = punch_t + 3.0
+
+        pre_punch_segs = [
+            s.end for s in transcript_segments
+            if cand_start + 2.0 <= s.end <= punch_t - 0.2 and s.end <= cand_end - 2.0
+        ]
+        split_t = pre_punch_segs[-1] if pre_punch_segs else max(cand_start + 2.5, min(punch_t - 0.5, cand_end - 2.5))
+
+        setup_start = cand_start
+        setup_end = round(split_t, 2)
         punch_start = setup_end
+        clip_end = round(cand_end, 2)
+
         source_setup_dur = round(setup_end - setup_start, 2)
         source_payoff_dur = round(clip_end - punch_start, 2)
-        total_source_dur = source_setup_dur + source_payoff_dur
+        total_source_dur = round(source_setup_dur + source_payoff_dur, 2)
 
         seg1_path = seg_dir / "seg1_hook.mp4"
         _render_image_audio_segment(visuals["hook_card"], hook_v["audio_path"], hook_v["duration_sec"], seg1_path)
@@ -463,7 +530,7 @@ def render_faceless_commentary_short(
 
         total_ai_comm_dur = round(hook_v["duration_sec"] + context_v["duration_sec"] + analysis_v["duration_sec"] + conclusion_v["duration_sec"], 2)
         total_ai_vis_dur = round(hook_v["duration_sec"] + context_v["duration_sec"] + conclusion_v["duration_sec"], 2)
-        total_short_dur = total_source_dur + total_ai_comm_dur
+        total_short_dur = round(total_source_dur + total_ai_comm_dur, 2)
         sub_segments = []
 
     # 4. Concatenate Segments

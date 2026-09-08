@@ -714,10 +714,28 @@ def render_asset_library_view():
             st.success(f"Imported '{new_asset.name}' with rights_status='user_supplied'.")
 
     # Tabs for categories
-    tabs = st.tabs(["Memes & Stickers", "Sound Effects", "Music", "Transitions", "All Assets"])
+    tabs = st.tabs(["🎬 50 Indian Video Memes", "Memes & Stickers", "Sound Effects", "Music", "Transitions", "All Assets"])
+
+    with tabs[0]:
+        st.subheader("🎭 50 Authentic Indian Scene Memes (0% Chroma Green Bleed)")
+        st.caption("Real film & TV comedy scenes from *Phir Hera Pheri*, *Panchayat*, *Welcome*, *3 Idiots*, *Mirzapur*, *Shark Tank*, and *TMKOC*.")
+        from src.meme_selector import INDIAN_MEME_CATALOG
+        from pathlib import Path
+        v_dir = Path("assets/memes/videos")
+        
+        m_cols = st.columns(3)
+        for i, item in enumerate(INDIAN_MEME_CATALOG):
+            col = m_cols[i % 3]
+            with col:
+                f_path = v_dir / item["filename"]
+                if f_path.exists():
+                    st.video(str(f_path))
+                    st.markdown(f"**{item['title']}**")
+                    st.caption(f"Tags: `{', '.join(item['keywords'][:4])}`")
+                    st.write("")
 
     for tab_idx, cat in enumerate([AssetCategory.MEME, AssetCategory.SFX, AssetCategory.MUSIC, AssetCategory.TRANSITION, None]):
-        with tabs[tab_idx]:
+        with tabs[tab_idx + 1]:
             if cat:
                 cat_assets = [a for a in mgr.get_all_assets() if a.asset_category == cat or (cat == AssetCategory.MEME and a.asset_category == AssetCategory.GENERATED)]
             else:

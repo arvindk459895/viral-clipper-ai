@@ -29,11 +29,21 @@ from src.config import (
     load_saved_api_key,
     save_api_key_locally
 )
+from datetime import datetime, timedelta, timezone
 from src.utils import is_valid_youtube_url
 from src.asset_license import AssetCategory, AssetStatus, is_eligible_for_export
 from src.meme_manager import AssetLibraryManager
 from src.asset_downloader import update_trending_meme_library
 from src.pipeline import run_pipeline
+from src.youtube_publisher import (
+    YouTubeChannelManager,
+    ChannelInfo,
+    schedule_youtube_short,
+    get_scheduled_shorts,
+    delete_scheduled_short,
+    format_youtube_title,
+    format_youtube_tags
+)
 
 
 def init_session_state():
@@ -130,11 +140,38 @@ def render_sidebar():
         st.caption("🔒 *API key is saved locally in your workspace and loaded automatically on reload.*")
         st.divider()
 
+        st.subheader("📺 YouTube Channel")
+        yt_mgr = YouTubeChannelManager()
+        if yt_mgr.is_connected():
+            ch_info = yt_mgr.get_channel_info()
+            if ch_info:
+                st.markdown(f"🟢 **{ch_info.title}**")
+                st.caption(f"{ch_info.handle} • {ch_info.subscriber_count:,} subs {'(Demo Sandbox)' if ch_info.is_demo else '(Live OAuth)'}")
+                ycol1, ycol2 = st.columns(2)
+                with ycol1:
+                    if st.button("Manage", key="btn_sb_yt_manage", use_container_width=True):
+                        st.session_state.active_tab = "📺 YouTube Channel & Scheduler"
+                        st.rerun()
+                with ycol2:
+                    if st.button("Disconnect", key="btn_sb_yt_disc", use_container_width=True):
+                        yt_mgr.disconnect()
+                        st.rerun()
+            else:
+                st.caption("🟢 **Connected**")
+        else:
+            st.caption("🔴 **No Channel Connected**")
+            if st.button("🔗 Connect Channel", key="btn_sb_yt_conn", use_container_width=True):
+                st.session_state.active_tab = "📺 YouTube Channel & Scheduler"
+                st.rerun()
+        st.divider()
+
         st.subheader("🧭 Studio Navigation")
+        nav_options = ["Studio", "Asset Library", "Rights & Compliance", "📺 YouTube Channel & Scheduler"]
+        cur_idx = nav_options.index(st.session_state.active_tab) if st.session_state.active_tab in nav_options else 0
         app_mode = st.radio(
             "Navigation",
-            options=["Studio", "Asset Library", "Rights & Compliance"],
-            index=0
+            options=nav_options,
+            index=cur_idx
         )
         st.session_state.active_tab = app_mode
         st.divider()
@@ -681,7 +718,318 @@ def render_results_page(results: Dict[str, Any]):
                         with open(short["thumbnail_2"], "rb") as tf2:
                             st.download_button("🖼️ Cover 2", tf2.read(), file_name=f"{short['clip_id']}_thumb2.jpg", key=f"dl_t2_{idx}")
 
+            # 🚀 1-Click YouTube Shorts Scheduler Drawer
+            render_1click_youtube_scheduler_card(idx, short, vid_file)
+
             st.divider()
+
+
+def render_1click_youtube_scheduler_card(idx: int, short: Dict[str, Any], default_vid_path: str):
+    """Interactive 1-Click YouTube Shorts Scheduler Card directly inside each clip card."""
+    yt_mgr = YouTubeChannelManager()
+    is_conn = yt_mgr.is_connected()
+    ch_info = yt_mgr.get_channel_info() if is_conn else None
+
+    with st.expander(f"🚀 1-Click Schedule on YouTube Shorts (#{idx+1})", expanded=False):
+        # Channel Connection Status Bar
+        if is_conn and ch_info:
+            scol1, scol2 = st.columns([2.6, 1.4])
+            with scol1:
+                st.success(f"🟢 **Target Channel**: {ch_info.title} (`{ch_info.handle}`) • {ch_info.subscriber_count:,} subs {'(Sandbox Mode)' if ch_info.is_demo else '(Live OAuth)'}")
+            with scol2:
+                if st.button("⚙️ Manage Channel", key=f"btn_switch_ch_{idx}", use_container_width=True):
+                    st.session_state.active_tab = "📺 YouTube Channel & Scheduler"
+                    st.rerun()
+        else:
+            st.warning("⚠️ **No YouTube Channel Connected.** You can test immediately in Sandbox Mode or connect via Google Cloud.")
+            bcol1, bcol2 = st.columns(2)
+            with bcol1:
+                if st.button("🧪 Connect Demo Channel Instantly", key=f"btn_card_demo_{idx}", type="primary", use_container_width=True):
+                    yt_mgr.connect_demo_mode()
+                    st.success("✅ Demo Channel connected! Ready to schedule.")
+                    st.rerun()
+            with bcol2:
+                if st.button("🔗 Open Channel Setup Space", key=f"btn_card_setup_{idx}", use_container_width=True):
+                    st.session_state.active_tab = "📺 YouTube Channel & Scheduler"
+                    st.rerun()
+
+        # 1. Title Selection
+        title_options = short["titles"] + ["Custom Title"]
+        chosen_title_preset = st.selectbox(
+            "YouTube Short Title",
+            options=title_options,
+            index=0,
+            key=f"yt_card_title_sel_{idx}"
+        )
+        if chosen_title_preset == "Custom Title":
+            active_title = st.text_input(
+                "Custom Title",
+                value=short["titles"][0],
+                key=f"yt_card_custom_title_{idx}"
+            )
+        else:
+            active_title = chosen_title_preset
+
+        st.caption(f"📝 Title Preview: **{format_youtube_title(active_title)}**")
+
+        # 2. Description Editor
+        active_desc = st.text_area(
+            "Video Description (Includes Auto-Credits, Timestamps & Legal Notice)",
+            value=short["description"],
+            height=100,
+            key=f"yt_card_desc_{idx}"
+        )
+
+        # 3. Tags & Hashtags
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            default_tags = "comedy, standup comedy, hindi comedy, funny, shorts, viral, relatable"
+            active_tags_str = st.text_input(
+                "Search Tags (comma-separated keywords)",
+                value=default_tags,
+                key=f"yt_card_tags_{idx}"
+            )
+        with col_t2:
+            default_hashes = " ".join(short.get("hashtags", ["#Shorts", "#Comedy"]))
+            active_hashes_str = st.text_input(
+                "Hashtags",
+                value=default_hashes,
+                key=f"yt_card_hashes_{idx}"
+            )
+
+        # 4. Schedule Timing & Thumbnail Cover
+        time_col1, time_col2 = st.columns([1.6, 1.4])
+        with time_col1:
+            schedule_preset = st.radio(
+                "Publish Schedule",
+                options=[
+                    "🌆 Tomorrow Prime Time (6:00 PM)",
+                    "🌅 Tomorrow Morning (9:00 AM)",
+                    "⚡ Immediate Release (Public)",
+                    "📅 Custom Date & Time"
+                ],
+                index=0,
+                key=f"yt_card_timing_{idx}"
+            )
+        with time_col2:
+            thumb_choice = st.selectbox(
+                "Cover Thumbnail",
+                options=["Option 1 (Reaction)", "Option 2 (Curiosity)", "Auto Video Frame"],
+                index=0,
+                key=f"yt_card_thumb_sel_{idx}"
+            )
+
+        custom_publish_dt = None
+        if schedule_preset == "📅 Custom Date & Time":
+            dcol1, dcol2 = st.columns(2)
+            with dcol1:
+                c_date = st.date_input("Schedule Date", key=f"yt_card_date_{idx}")
+            with dcol2:
+                c_time = st.time_input("Schedule Time", key=f"yt_card_time_{idx}")
+            custom_publish_dt = datetime.combine(c_date, c_time)
+
+        # 5. One-Click Action Trigger
+        action_label = f"🚀 1-Click Schedule on {ch_info.handle}" if (is_conn and ch_info) else "🚀 1-Click Schedule on YouTube"
+
+        if st.button(action_label, type="primary", use_container_width=True, key=f"btn_execute_schedule_{idx}"):
+            if not is_conn:
+                yt_mgr.connect_demo_mode()
+                ch_info = yt_mgr.get_channel_info()
+
+            with st.spinner("Processing 1-Click YouTube upload and schedule..."):
+                try:
+                    now = datetime.now()
+                    if schedule_preset == "🌆 Tomorrow Prime Time (6:00 PM)":
+                        target_dt = (now + timedelta(days=1)).replace(hour=18, minute=0, second=0, microsecond=0)
+                        priv = "private"
+                    elif schedule_preset == "🌅 Tomorrow Morning (9:00 AM)":
+                        target_dt = (now + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+                        priv = "private"
+                    elif schedule_preset == "⚡ Immediate Release (Public)":
+                        target_dt = None
+                        priv = "public"
+                    else:
+                        target_dt = custom_publish_dt
+                        priv = "private"
+
+                    vid_to_publish = short.get("faceless_mp4") or default_vid_path or short.get("meme_mp4") or short.get("clean_mp4")
+                    if not vid_to_publish or not Path(vid_to_publish).exists():
+                        raise FileNotFoundError("Video file for this short was not found.")
+
+                    if thumb_choice == "Option 1 (Reaction)":
+                        selected_thumb = short.get("thumbnail_1")
+                    elif thumb_choice == "Option 2 (Curiosity)":
+                        selected_thumb = short.get("thumbnail_2")
+                    else:
+                        selected_thumb = None
+
+                    clean_hashtags = [h.strip() for h in active_hashes_str.split() if h.strip()]
+
+                    res = schedule_youtube_short(
+                        video_path=vid_to_publish,
+                        title=active_title,
+                        description=active_desc,
+                        tags=active_tags_str,
+                        hashtags=clean_hashtags,
+                        publish_at=target_dt,
+                        privacy_status=priv,
+                        thumbnail_path=selected_thumb,
+                        channel_manager=yt_mgr
+                    )
+
+                    st.success(f"🎉 **Short #{idx+1} Successfully Scheduled for {res.get('scheduled_time_local', 'Immediate Release')}!**")
+                    lcol1, lcol2 = st.columns(2)
+                    with lcol1:
+                        st.link_button("▶️ Open YouTube Shorts Link", res["youtube_url"], use_container_width=True)
+                    with lcol2:
+                        st.link_button("⚙️ Manage in YouTube Studio", res["studio_url"], use_container_width=True)
+
+                except Exception as err:
+                    st.error(f"Scheduling error: {str(err)}")
+
+
+def render_youtube_manager_view():
+    """Dedicated YouTube Channel Connection Space and Scheduled Shorts Queue."""
+    st.header("📺 YouTube Channel Connection & 1-Click Scheduler")
+    st.caption("Connect your YouTube Channel via Google OAuth 2.0 or Instant Test Mode to schedule viral Shorts in 1 click.")
+
+    yt_mgr = YouTubeChannelManager()
+    is_conn = yt_mgr.is_connected()
+    ch_info = yt_mgr.get_channel_info() if is_conn else None
+
+    yt_tab1, yt_tab2 = st.tabs([
+        "🔗 Channel Connection Space",
+        "📅 Scheduled Shorts Queue"
+    ])
+
+    with yt_tab1:
+        st.subheader("YouTube Channel Authorization")
+
+        if is_conn and ch_info:
+            st.success("✅ **YouTube Channel Connected & Ready for 1-Click Publishing**")
+            prof_col1, prof_col2 = st.columns([1.2, 3])
+            with prof_col1:
+                if ch_info.avatar_url:
+                    st.image(ch_info.avatar_url, width=140)
+            with prof_col2:
+                st.markdown(f"### {ch_info.title}")
+                st.caption(f"Handle: **{ch_info.handle}** | Channel ID: `{ch_info.channel_id}`")
+                m1, m2, m3 = st.columns(3)
+                with m1:
+                    st.metric("Subscribers", f"{ch_info.subscriber_count:,}")
+                with m2:
+                    st.metric("Total Videos", f"{ch_info.video_count:,}")
+                with m3:
+                    st.metric("Mode", "Demo Sandbox" if ch_info.is_demo else "Live Google OAuth")
+
+                st.link_button("▶️ View Channel on YouTube", f"https://youtube.com/{ch_info.handle.lstrip('@')}")
+
+            st.write("")
+            if st.button("🔴 Disconnect / Switch Channel", type="secondary"):
+                yt_mgr.disconnect()
+                st.success("Channel disconnected.")
+                st.rerun()
+
+        else:
+            st.info("Choose your connection method below to start scheduling shorts:")
+
+            c_col1, c_col2 = st.columns(2)
+
+            with c_col1:
+                st.markdown("#### 🧪 Instant Test Channel (Demo Mode)")
+                st.caption("Zero-setup sandbox. Test the 1-click scheduler immediately without needing a Google Cloud developer account or API approval.")
+                d_name = st.text_input("Demo Channel Name", value="My Comedy Studio", key="input_demo_ch_name")
+                d_handle = st.text_input("Demo Handle", value="@MyComedyStudio", key="input_demo_ch_handle")
+                if st.button("🚀 Activate Demo Channel Instantly", type="primary", use_container_width=True, key="btn_activate_demo_ch"):
+                    yt_mgr.connect_demo_mode(channel_name=d_name, handle=d_handle)
+                    st.success("✅ Demo Channel connected! You can now test 1-click scheduling.")
+                    st.rerun()
+
+            with c_col2:
+                st.markdown("#### 🔑 Official Google Cloud OAuth 2.0")
+                st.caption("Connect your real YouTube channel with official Google OAuth to publish directly to your audience.")
+
+                with st.expander("📋 Quick Setup Guide (Google Cloud Console)"):
+                    st.markdown("""
+1. Open [Google Cloud Console](https://console.cloud.google.com/).
+2. Enable **YouTube Data API v3** in APIs & Services.
+3. In **OAuth consent screen**, set user type to *External* and add test users.
+4. Go to **Credentials** ➔ **Create Credentials** ➔ **OAuth client ID** (Desktop Application).
+5. Download `client_secrets.json` or copy Client ID & Secret.
+""")
+
+                oauth_tab1, oauth_tab2 = st.tabs(["Upload client_secrets.json", "Enter Client ID & Secret"])
+                with oauth_tab1:
+                    uploaded_secret = st.file_uploader("Upload Google client_secrets.json", type=["json"], key="uploader_yt_secrets")
+                    if uploaded_secret:
+                        if st.button("Authorize with Google (File)", type="primary", use_container_width=True, key="btn_auth_file"):
+                            try:
+                                sec_dict = json.loads(uploaded_secret.read().decode("utf-8"))
+                                with st.spinner("Opening browser for Google authorization..."):
+                                    ok, msg = yt_mgr.connect_with_client_secrets_dict(sec_dict)
+                                    if ok:
+                                        st.success("✅ Channel connected successfully!")
+                                        st.rerun()
+                                    else:
+                                        st.error(msg)
+                            except Exception as ex:
+                                st.error(f"Error parsing secrets file: {ex}")
+
+                with oauth_tab2:
+                    cid = st.text_input("Client ID", placeholder="xxxx.apps.googleusercontent.com", key="input_yt_cid")
+                    csecret = st.text_input("Client Secret", type="password", placeholder="GOCSPX-xxxx", key="input_yt_csec")
+                    if st.button("Authorize with Google (Credentials)", type="primary", use_container_width=True, key="btn_auth_creds"):
+                        if cid and csecret:
+                            with st.spinner("Opening browser for Google authorization..."):
+                                ok, msg = yt_mgr.connect_with_client_credentials(cid, csecret)
+                                if ok:
+                                    st.success("✅ Channel connected successfully!")
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                        else:
+                            st.warning("Please provide both Client ID and Client Secret.")
+
+    with yt_tab2:
+        st.subheader("📅 Scheduled Shorts Queue")
+        queue = get_scheduled_shorts()
+
+        if not queue:
+            st.info("Your scheduled queue is currently empty. Generate Shorts in the Studio tab, then click **'🚀 1-Click Schedule'** on any clip you like!")
+        else:
+            q1, q2, q3 = st.columns(3)
+            with q1:
+                st.metric("Total In Queue", len(queue))
+            with q2:
+                scheduled_count = sum(1 for q in queue if q.get("status") == "SCHEDULED")
+                st.metric("Scheduled Releases", scheduled_count)
+            with q3:
+                target_ch = queue[0].get("channel_handle", "@channel")
+                st.metric("Primary Channel", target_ch)
+
+            st.divider()
+
+            for item in queue:
+                with st.container():
+                    qc1, qc2, qc3 = st.columns([1, 2.5, 1.2])
+                    with qc1:
+                        if item.get("thumbnail_path") and Path(item["thumbnail_path"]).exists():
+                            st.image(item["thumbnail_path"], use_container_width=True)
+                        else:
+                            st.caption("🎬 9:16 Video Short")
+                    with qc2:
+                        st.markdown(f"**{item['title']}**")
+                        st.caption(f"Release: **{item.get('scheduled_time_local', item.get('scheduled_time_utc', 'Immediate'))}** • Channel: `{item.get('channel_handle')}`")
+                        st.markdown(f"Status: **:{'green' if item.get('status') == 'SCHEDULED' else 'blue'}[{item.get('status', 'SCHEDULED')}]**")
+                        if item.get("tags"):
+                            st.caption(f"Tags: `{'`, `'.join(item['tags'][:6])}`")
+                    with qc3:
+                        st.link_button("▶️ Shorts Link", item["youtube_url"], use_container_width=True)
+                        st.link_button("⚙️ Studio Edit", item["studio_url"], use_container_width=True)
+                        if st.button("🗑️ Remove", key=f"del_q_{item['id']}", use_container_width=True):
+                            delete_scheduled_short(item["id"])
+                            st.rerun()
+                    st.divider()
 
 
 def render_asset_library_view():
@@ -825,6 +1173,8 @@ def main():
         render_asset_library_view()
     elif st.session_state.active_tab == "Rights & Compliance":
         render_compliance_view()
+    elif "YouTube" in st.session_state.active_tab:
+        render_youtube_manager_view()
 
 
 if __name__ == "__main__":

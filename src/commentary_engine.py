@@ -111,11 +111,22 @@ def generate_heuristic_commentary(
     has_pause = "silence" in " ".join(candidate.audio_events)
 
     if effective_lang in ["hinglish", "hindi"]:
-        if "gym" in text_lower or "workout" in text_lower:
+        if "mard" in text_lower or "depression" in text_lower or "ladki" in text_lower or "zindagi" in text_lower:
+            hook = "Bhai Samay ne mard jaati ka aisa sach bola hai na, sunke aapka dimaag ghoom jayega!"
+            context = "Setup toh bilkul serious lag raha tha, par aage jo bola har launda relate karega!"
+            analysis = "Matlab andar se rote raho par bahar se 'Mard hoon main'! Kya zabardast timing hai Samay ki! 😂"
+            conclusion = "Agar aap bhi depression me 'Mard hoon main' bolte ho, toh LIKE dabao aur CHANNEL SUBSCRIBE karo bhai!"
+            angle = "Brutally honest and relatable men's emotion humor"
+            breakdown = "Satirical breakdown of men masking emotions with dark humor"
+            h_emo = "excited"
+            c_emo = "sarcastic"
+            a_emo = "cheerful"
+            con_emo = "cheerful"
+        elif "gym" in text_lower or "workout" in text_lower:
             hook = "Bhai ye banda itne confidence me gym gaya tha, par dekho aage kya hua!"
             context = "Trainer ne socha tha bodybuilder banayega, par iska pehla hi jawab sunke dimaag ghoom gaya!"
             analysis = "Matlab agle hi din ghutno ne resign kar diya! Bhai zinda bach gaya wahi badi baat hai! 😂"
-            conclusion = "Aapka gym me pehla din kaisa tha, comments me batao aur subscribe karna mat bhoolna!"
+            conclusion = "Agar aapka bhi gym me yahi haal hota hai, toh video LIKE thoko aur CHANNEL SUBSCRIBE maaro!"
             angle = "First day gym expectation vs reality"
             breakdown = "Classic relatable lazy humor"
             h_emo = "excited"
@@ -126,7 +137,7 @@ def generate_heuristic_commentary(
             hook = "Arre bhai bhai bhai, Samay ne aate hi iski aisi le li na, ki pura panel hil gaya!"
             context = "Banda socha tha stage pe hero banega, par agle hi second aisi beizzati hui ki bas dekhte jao!"
             analysis = "Matlab aisi roasting to dushman ki bhi na ho! Panel ka shock dekho zara! 🤣"
-            conclusion = "Aapko konsa roast sabse khatarnak laga, comments me batao aur subscribe thoko!"
+            conclusion = "Aise hi khatarnak roasts dekhne ke liye LIKE dabao aur CHANNEL ko abhi SUBSCRIBE karo!"
             angle = "Brutal unexpected comedy roast"
             breakdown = "Deadpan delivery with hilarious panel eruption"
             h_emo = "excited"
@@ -137,7 +148,7 @@ def generate_heuristic_commentary(
             hook = "Bhai ye video dekh ke aapki hansi nahi rukegi, dekho aage kya hone wala hai!"
             context = "Setup dekh ke bilkul normal lag raha tha, par aage jo twist aaya na, alag hi level tha!"
             analysis = "Ye reaction dekho bhai, banda sach me confuse ho gaya ki achanak hua kya! 😂"
-            conclusion = "Aapka ispe kya reaction hai, comments me batao aur channel ko subscribe karlo!"
+            conclusion = "Agar ye twist dekh ke aapki bhi hansi nahi ruki, toh LIKE maaro aur CHANNEL SUBSCRIBE karlo!"
             angle = "Innocent question leading to hilarious twist"
             breakdown = "Sharp comedic punchline and confusion"
             h_emo = "excited"
@@ -148,7 +159,7 @@ def generate_heuristic_commentary(
             hook = "Bhai ye clip dekho zara, aage jo hone wala hai aap soch bhi nahi sakte!"
             context = "Pehle to sab shanti se chal raha tha, par agle hi second aisi comedy hui ki sab dang reh gaye!"
             analysis = "Hansi ke maare bura haal ho gaya! Matlab timing dekho bande ki, kya dialogue maara hai! 🤣"
-            conclusion = "Video pasand aayi toh like karo aur niche batao sabse best part konsa tha!"
+            conclusion = "Aise hi relatable comedy aur daily laughs ke liye LIKE dabao aur CHANNEL SUBSCRIBE maaro!"
             angle = "Priceless comedic timing and crowd eruption"
             breakdown = "Fast setup followed by laugh riot payoff"
             h_emo = "excited"
@@ -262,7 +273,7 @@ CREATOR STYLE RULES (CRITICAL):
    - hook (1 sentence, 8-14 words): Energetic tease pulling the viewer in (e.g. "Bhai is bande ka confidence dekho! Gym aate hi jo bola sunke dimaag hil gaya!").
    - context_commentary (1 sentence, 10-18 words): Funny setup line describing the situation or building anticipation.
    - analysis_reaction (1-2 sentences, 12-25 words): Hilarious roast or laugh reaction reacting directly to the punchline!
-   - conclusion (1 sentence, 8-15 words): Snappy outro question driving viewer comments and channel subscription!
+   - conclusion (1 sentence, 10-18 words): Creative, witty CTA tied directly into the joke premise urging viewers to LIKE the video and SUBSCRIBE to the channel (e.g., 'Agar aap bhi depression me mard bante ho toh like dabao aur channel subscribe karo bhai!').
 4. EMOTION TAGS:
    Assign an emotional style from: "cheerful" (laugh/funny), "excited" (shocked), "sarcastic" (roast/deadpan), "sad" (moye moye defeat).
 

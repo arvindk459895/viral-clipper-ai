@@ -1,17 +1,29 @@
-﻿# Python cache
+# Python virtual environment & cache
 __pycache__/
 *.py[cod]
-*.class
+*$py.class
 .pytest_cache/
+.venv/
+env/
+venv/
+ENV/
 
-# App temporary media
-temp/
-outputs/*.mp4
-outputs/*.mp3
-outputs/*.jpg
-outputs/*.png
+# App temporary media & generated outputs
+temp/*
+!temp/.gitkeep
+outputs/*
+!outputs/.gitkeep
 scratch_ref/
 
-# Sensitive keys
+# Sensitive API keys, credentials & tokens
 .env
 .gemini_api_key
+credentials/*
+!credentials/.gitkeep
+*client_secrets*.json
+*youtube_token*.json
+demo_channel.json
+
+# Scratch & test files
+test.txt
+fix_all.py

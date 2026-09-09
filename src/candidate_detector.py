@@ -93,8 +93,9 @@ def is_clean_sentence_end(text: str) -> bool:
     t = text.strip()
     if not t:
         return False
-    if t.endswith((".", "!", "?")):
-        clean_no_punc = t.rstrip(".!? ")
+    # Supports Western punctuation and Devanagari danda / double danda (U+0964, U+0965)
+    if t.endswith((".", "!", "?", "\u0964", "\u0965")):
+        clean_no_punc = t.rstrip(".!? \u0964\u0965")
         last_word = clean_no_punc.split()[-1].lower() if clean_no_punc.split() else ""
         if last_word in DANGLING_CONNECTORS:
             return False
@@ -223,7 +224,7 @@ def detect_candidate_moments(
         # Setup duration target: 50-60% of preferred duration
         setup_target = preferred_duration * 0.55
         # Reaction target: MUST encompass full laughter cluster + generous post-laughter comedic resolution
-        react_target = max(9.0, min(22.0, (cl_end - punch_t) + 4.5))
+        react_target = max(9.0, min(38.0, (cl_end - punch_t) + 6.0))
 
         ideal_start = max(0.0, punch_t - setup_target)
         ideal_end = min(total_duration, punch_t + react_target)
@@ -241,7 +242,7 @@ def detect_candidate_moments(
 
         # Snap end time cleanly to sentence boundary AFTER laughter reaction has subsided
         min_end_t = max(punch_t + 5.0, cl_end + 1.2)
-        max_end_t = min(total_duration, punch_t + 25.0)
+        max_end_t = min(total_duration, punch_t + 38.0)
 
         valid_end_segs = [
             s for s in transcript.segments
@@ -253,16 +254,18 @@ def detect_candidate_moments(
         if candidate_end_pool:
             best_end_seg = min(candidate_end_pool, key=lambda s: abs(s.end - ideal_end))
             clip_end = best_end_seg.end
-            # If the selected end segment still has a dangling ending, walk forward to finish the thought
-            if not is_clean_sentence_end(best_end_seg.text):
-                try:
-                    s_idx = transcript.segments.index(best_end_seg)
-                    for next_s in transcript.segments[s_idx + 1: s_idx + 4]:
-                        clip_end = next_s.end
-                        if is_clean_sentence_end(next_s.text) or (clip_end - clip_start) >= max_clip_duration - 2.0:
-                            break
-                except (ValueError, IndexError):
-                    pass
+            # Walk forward through contiguous thought segments until clean sentence / bit conclusion
+            try:
+                s_idx = transcript.segments.index(best_end_seg)
+                for next_s in transcript.segments[s_idx + 1: s_idx + 8]:
+                    if (next_s.end - clip_start) > max_clip_duration - 2.0:
+                        break
+                    # If current segment has a dangling ending or next segment is an immediate exclamation/punchline tag
+                    clip_end = next_s.end
+                    if is_clean_sentence_end(next_s.text):
+                        break
+            except (ValueError, IndexError):
+                pass
         else:
             clip_end = ideal_end
 

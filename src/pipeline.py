@@ -85,10 +85,10 @@ def run_pipeline(
     audio_path = media["audio_path"]
     meta: VideoMetadata = media["metadata"]
 
-    update_progress(0.18, f"Step 1B: Audio track verified ({Path(audio_path).name})")
+    update_progress(0.10, f"Step 1B: Audio track verified ({Path(audio_path).name})")
 
     # Step 2: Transcribe Speech / Ingest Subtitles (Hindi/Hinglish/English)
-    update_progress(0.25, "Step 2: Ingesting speech and word-level timestamps...")
+    update_progress(0.18, "Step 2: Ingesting speech and word-level timestamps...")
     if is_demo:
         transcript = get_demo_transcript(meta.duration)
     else:
@@ -99,11 +99,11 @@ def run_pipeline(
         )
 
     # Step 3: Audio DSP Event Analysis
-    update_progress(0.40, "Step 3: Detecting laughter bursts, peaks, and dramatic pauses...")
+    update_progress(0.28, "Step 3: Detecting laughter bursts, peaks, and dramatic pauses...")
     audio_analysis = analyze_audio_events(audio_path)
 
     # Step 4: Comedy Candidate Moment Detection across full duration
-    update_progress(0.55, "Step 4: Clustering laughter and identifying funniest comedy moments...")
+    update_progress(0.38, "Step 4: Clustering laughter and identifying funniest comedy moments...")
     candidates = detect_candidate_moments(
         transcript=transcript,
         audio_analysis=audio_analysis,
@@ -127,7 +127,7 @@ def run_pipeline(
     selected_candidates = candidates[:num_shorts]
 
     # Step 5: Gemini Analysis & Scoring
-    update_progress(0.70, "Step 5: Performing Gemini comedy intelligence and viral scoring...")
+    update_progress(0.46, "Step 5: Performing Gemini comedy intelligence and viral scoring...")
     analyzed_clips: List[Dict[str, Any]] = []
 
     for idx, cand in enumerate(selected_candidates):
@@ -141,14 +141,28 @@ def run_pipeline(
         analyzed_clips.append({"candidate": cand, "analysis": analysis})
 
     # Step 6: 9:16 Video Rendering, Captions, Effects, and Thumbnails
-    update_progress(0.85, "Step 6: Rendering 9:16 Shorts, burning subtitles, and generating thumbnails...")
+    num_clips = len(analyzed_clips)
     rendered_shorts: List[Dict[str, Any]] = []
     export_files: List[Path] = []
     used_assets = asset_mgr.get_approved_assets()[:2]
 
+    step6_start = 0.50
+    step6_end = 0.94
+    clip_weight = (step6_end - step6_start) / max(1, num_clips)
+
     for idx, item in enumerate(analyzed_clips):
         cand: CandidateClip = item["candidate"]
         analysis: GeminiClipAnalysis = item["analysis"]
+        base_p = step6_start + (idx * clip_weight)
+
+        def make_clip_cb(c_idx, c_id, base_pct, c_weight):
+            def _cb(sub_pct: float, sub_msg: str):
+                cur_pct = base_pct + (sub_pct * c_weight)
+                update_progress(round(cur_pct, 3), f"Step 6 [{c_idx+1}/{num_clips}] ({c_id}): {sub_msg}")
+            return _cb
+
+        clip_cb = make_clip_cb(idx, cand.clip_id, base_p, clip_weight)
+        clip_cb(0.02, "Generating titles, descriptions & viral hashtags...")
 
         # 1. Generate Metadata first so titles can feed the top header if in Auto mode
         metadata = generate_clip_metadata(
@@ -167,6 +181,7 @@ def run_pipeline(
 
         # Render according to Studio Mode
         if studio_mode == "faceless":
+            clip_cb(0.05, "Writing original editorial commentary script...")
             # Generate and validate original editorial script with language and emotion
             comm_script = generate_commentary_script(
                 candidate=cand,
@@ -196,7 +211,8 @@ def run_pipeline(
                 meme_style=meme_style,
                 humor_type=analysis.humor_type,
                 clip_index=idx,
-                dialogue_text=cand.text
+                dialogue_text=cand.text,
+                progress_callback=clip_cb
             )
             export_files.append(Path(faceless_res["output_path"]))
             clean_res = {"output_path": faceless_res["output_path"]}
@@ -204,6 +220,7 @@ def run_pipeline(
             heavy_res = {"output_path": faceless_res["output_path"]}
         else:
             # 2. Render Clean version
+            clip_cb(0.10, "Rendering Clean 9:16 Short...")
             clean_res = render_short_clip(
                 video_path=video_path,
                 audio_path=audio_path,
@@ -218,6 +235,7 @@ def run_pipeline(
             export_files.append(Path(clean_res["output_path"]))
 
             # 3. Render Meme / Modern version
+            clip_cb(0.45, "Rendering Meme / Modern 9:16 Short...")
             meme_res = render_short_clip(
                 video_path=video_path,
                 audio_path=audio_path,
@@ -232,6 +250,7 @@ def run_pipeline(
             export_files.append(Path(meme_res["output_path"]))
 
             # 4. Render Heavy Meme version
+            clip_cb(0.75, "Rendering Heavy Meme 9:16 Short...")
             heavy_res = render_short_clip(
                 video_path=video_path,
                 audio_path=audio_path,
@@ -249,6 +268,7 @@ def run_pipeline(
             faceless_res = None
 
         # 5. Generate Thumbnails (2 options)
+        clip_cb(0.98, "Generating vertical thumbnail variants...")
         thumbs = generate_thumbnails(video_path, cand, analysis)
         export_files.append(Path(thumbs.option_1_path))
         export_files.append(Path(thumbs.option_2_path))

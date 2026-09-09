@@ -81,11 +81,11 @@ def render_short_clip(
             f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:flags=lanczos"
         )
     else:
-        # Default: Full stage visible with ambient blurred background fill
+        # Default: Full stage visible with Cinematic Dark grade, Cyan ambient atmosphere glow & vignette
         base_v_filter = (
             f"[0:v]scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=increase,"
-            f"crop={TARGET_WIDTH}:{TARGET_HEIGHT},boxblur=25:5[bg];"
-            f"[0:v]scale={TARGET_WIDTH}:-1[fg];"
+            f"crop={TARGET_WIDTH}:{TARGET_HEIGHT},boxblur=28:6,colorchannelmixer=rr=0.60:gg=1.12:bb=1.45,vignette=PI/3.5:aspect=9/16[bg];"
+            f"[0:v]scale={TARGET_WIDTH}:-1,eq=contrast=1.22:brightness=-0.04:saturation=1.15,unsharp=5:5:0.8:5:5:0.0[fg];"
             f"[bg][fg]overlay=0:(H-h)/2"
         )
 

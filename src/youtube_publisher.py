@@ -185,12 +185,30 @@ class YouTubeChannelManager:
                 secrets_dict,
                 scopes=YOUTUBE_SCOPES
             )
-            # Run local server auth flow
-            creds = flow.run_local_server(port=0, open_browser=True)
-            self._save_credentials(creds)
-            return True, "Successfully authorized with YouTube Channel!"
+            # Try running local server auth; if in headless cloud container, gracefully return prompt
+            try:
+                creds = flow.run_local_server(port=0, open_browser=False)
+                self._save_credentials(creds)
+                return True, "Successfully authorized with YouTube Channel!"
+            except Exception as browser_err:
+                return False, f"Cloud server cannot open browser. Please use 'Paste Saved Token' or generate token on your desktop: {browser_err}"
         except Exception as e:
             return False, f"Google OAuth failed: {str(e)}"
+
+    def connect_with_token_dict(self, token_dict: Dict[str, Any]) -> Tuple[bool, str]:
+        """Directly authenticates by loading a pre-generated token.json (ideal for cloud deployments)."""
+        try:
+            self.token_path.parent.mkdir(parents=True, exist_ok=True)
+            self.token_path.write_text(json.dumps(token_dict, indent=2), encoding="utf-8")
+            if self._demo_channel_file.exists():
+                self._demo_channel_file.unlink()
+
+            info = self.get_channel_info()
+            if info:
+                return True, f"Successfully connected to YouTube channel: {info.title} ({info.handle})"
+            return True, "Successfully saved YouTube credentials token!"
+        except Exception as e:
+            return False, f"Failed to save YouTube token: {e}"
 
     def connect_with_client_credentials(
         self,

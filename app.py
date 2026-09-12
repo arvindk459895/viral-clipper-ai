@@ -1043,14 +1043,30 @@ def render_youtube_manager_view():
 5. Download `client_secrets.json` or copy Client ID & Secret.
 """)
 
-                oauth_tab1, oauth_tab2 = st.tabs(["Upload client_secrets.json", "Enter Client ID & Secret"])
+                oauth_tab1, oauth_tab2, oauth_tab3 = st.tabs(["Upload Token (Cloud Safe)", "Upload client_secrets.json", "Enter Client ID & Secret"])
                 with oauth_tab1:
+                    st.caption("💡 **Recommended for Streamlit Cloud**: Authorize once on your desktop, then upload `credentials/youtube_token.json` here.")
+                    up_token = st.file_uploader("Upload youtube_token.json", type=["json"], key="uploader_yt_token_cloud")
+                    if up_token:
+                        if st.button("💾 Save Channel Token", type="primary", use_container_width=True, key="btn_save_cloud_token"):
+                            try:
+                                tok_dict = json.loads(up_token.read().decode("utf-8"))
+                                ok, msg = yt_mgr.connect_with_token_dict(tok_dict)
+                                if ok:
+                                    st.success(f"✅ {msg}")
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                            except Exception as ex:
+                                st.error(f"Error parsing token file: {ex}")
+
+                with oauth_tab2:
                     uploaded_secret = st.file_uploader("Upload Google client_secrets.json", type=["json"], key="uploader_yt_secrets")
                     if uploaded_secret:
                         if st.button("Authorize with Google (File)", type="primary", use_container_width=True, key="btn_auth_file"):
                             try:
                                 sec_dict = json.loads(uploaded_secret.read().decode("utf-8"))
-                                with st.spinner("Opening browser for Google authorization..."):
+                                with st.spinner("Authorizing with Google..."):
                                     ok, msg = yt_mgr.connect_with_client_secrets_dict(sec_dict)
                                     if ok:
                                         st.success("✅ Channel connected successfully!")
@@ -1060,12 +1076,12 @@ def render_youtube_manager_view():
                             except Exception as ex:
                                 st.error(f"Error parsing secrets file: {ex}")
 
-                with oauth_tab2:
+                with oauth_tab3:
                     cid = st.text_input("Client ID", placeholder="xxxx.apps.googleusercontent.com", key="input_yt_cid")
                     csecret = st.text_input("Client Secret", type="password", placeholder="GOCSPX-xxxx", key="input_yt_csec")
                     if st.button("Authorize with Google (Credentials)", type="primary", use_container_width=True, key="btn_auth_creds"):
                         if cid and csecret:
-                            with st.spinner("Opening browser for Google authorization..."):
+                            with st.spinner("Authorizing with Google..."):
                                 ok, msg = yt_mgr.connect_with_client_credentials(cid, csecret)
                                 if ok:
                                     st.success("✅ Channel connected successfully!")

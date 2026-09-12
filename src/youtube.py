@@ -134,7 +134,7 @@ def download_video_and_audio(
 
         for client_cfg in client_configs:
             ydl_opts = {
-                'format': f'bestvideo[height<={max_height}][ext=mp4]+bestaudio[ext=m4a]/best[height<={max_height}][ext=mp4]/best[ext=mp4]/best',
+                'format': f'bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/bestvideo+bestaudio/best',
                 'outtmpl': str(video_path),
                 'extractor_args': {'youtube': client_cfg},
                 'quiet': True,

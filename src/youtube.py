@@ -31,57 +31,125 @@ class YouTubeIngestionError(Exception):
     pass
 
 
+def _extract_video_id(url: str) -> str:
+    """Extract YouTube video ID from various URL formats."""
+    import re
+    patterns = [
+        r'(?:v=|/v/|youtu\.be/)([a-zA-Z0-9_-]{11})',
+        r'(?:embed/)([a-zA-Z0-9_-]{11})',
+        r'(?:shorts/)([a-zA-Z0-9_-]{11})',
+    ]
+    for pat in patterns:
+        m = re.search(pat, url)
+        if m:
+            return m.group(1)
+    return ""
+
+
+def _oembed_fallback(url: str, video_id: str) -> Optional[VideoMetadata]:
+    """Fallback metadata extraction using YouTube oEmbed API (no format checking)."""
+    import urllib.request
+    import json as _json
+    try:
+        oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+        req = urllib.request.Request(oembed_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read().decode())
+        return VideoMetadata(
+            video_id=video_id,
+            title=data.get('title', 'Untitled Video'),
+            channel=data.get('author_name', 'Unknown Channel'),
+            duration=0.0,  # oEmbed doesn't provide duration
+            thumbnail_url=data.get('thumbnail_url'),
+            upload_date=None,
+            description='',
+            view_count=0
+        )
+    except Exception:
+        return None
+
+
 def extract_metadata(url: str) -> VideoMetadata:
-    """Extracts metadata from a YouTube video without downloading media files."""
+    """Extracts metadata from a YouTube video without downloading media files.
+    Uses multiple fallback strategies to handle SABR-only and bot-gated videos."""
     if not is_valid_youtube_url(url):
         raise YouTubeIngestionError(f"Invalid YouTube URL format: {url}")
 
+    video_id = _extract_video_id(url)
     cookie_file = CREDENTIALS_DIR / "youtube_cookies.txt"
+    has_cookies = cookie_file.exists() and cookie_file.stat().st_size > 0
+
+    # Strategy 1: Full extraction with ignore_no_formats_error
     ydl_opts = {
         'skip_download': True,
         'quiet': True,
         'no_warnings': True,
-        'extract_flat': True,
+        'ignore_no_formats_error': True,
         'check_formats': False,
+        'format': 'best',
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'web']
+                'player_client': ['android', 'ios']
             }
         }
     }
-    if cookie_file.exists() and cookie_file.stat().st_size > 0:
+    if has_cookies:
         ydl_opts['cookiefile'] = str(cookie_file)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            if not info:
-                raise YouTubeIngestionError("Could not retrieve video information.")
+            if info and info.get('title'):
+                return VideoMetadata(
+                    video_id=info.get('id', video_id or 'unknown_id'),
+                    title=info.get('title', 'Untitled Video'),
+                    channel=info.get('uploader') or info.get('channel', 'Unknown Channel'),
+                    duration=float(info.get('duration') or 0.0),
+                    thumbnail_url=info.get('thumbnail') or (info.get('thumbnails', [{}])[-1].get('url') if info.get('thumbnails') else None),
+                    upload_date=info.get('upload_date'),
+                    description=(info.get('description') or '')[:300],
+                    view_count=info.get('view_count', 0)
+                )
+    except Exception:
+        pass  # Fall through to next strategy
 
-            return VideoMetadata(
-                video_id=info.get('id', 'unknown_id'),
-                title=info.get('title', 'Untitled Video'),
-                channel=info.get('uploader') or info.get('channel', 'Unknown Channel'),
-                duration=float(info.get('duration') or 0.0),
-                thumbnail_url=info.get('thumbnail') or (info.get('thumbnails', [{}])[-1].get('url') if info.get('thumbnails') else None),
-                upload_date=info.get('upload_date'),
-                description=(info.get('description') or '')[:300],
-                view_count=info.get('view_count', 0)
-            )
-    except yt_dlp.utils.DownloadError as e:
-        msg = str(e)
-        if "Private video" in msg:
-            raise YouTubeIngestionError("This video is private or unavailable.")
-        elif "Video unavailable" in msg:
-            raise YouTubeIngestionError("This video is unavailable or has been removed.")
-        elif "Sign in to confirm your age" in msg:
-            raise YouTubeIngestionError("This video is age-restricted and cannot be downloaded without authentication.")
-        elif "403" in msg or "Forbidden" in msg:
-            raise YouTubeIngestionError("YouTube blocked download access (HTTP 403 Forbidden). Try using another video, local upload, or Demo Mode.")
-        else:
-            raise YouTubeIngestionError(f"yt-dlp metadata extraction failed: {msg}")
-    except Exception as e:
-        raise YouTubeIngestionError(f"Unexpected error extracting metadata: {str(e)}")
+    # Strategy 2: extract_flat (lightweight, no format resolution)
+    ydl_opts_flat = {
+        'skip_download': True,
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': 'in_playlist',
+    }
+    if has_cookies:
+        ydl_opts_flat['cookiefile'] = str(cookie_file)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts_flat) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if info and info.get('title'):
+                return VideoMetadata(
+                    video_id=info.get('id', video_id or 'unknown_id'),
+                    title=info.get('title', 'Untitled Video'),
+                    channel=info.get('uploader') or info.get('channel', 'Unknown Channel'),
+                    duration=float(info.get('duration') or 0.0),
+                    thumbnail_url=info.get('thumbnail'),
+                    upload_date=info.get('upload_date'),
+                    description=(info.get('description') or '')[:300],
+                    view_count=info.get('view_count', 0)
+                )
+    except Exception:
+        pass  # Fall through to oEmbed
+
+    # Strategy 3: YouTube oEmbed API (always works, no yt-dlp format issues)
+    if video_id:
+        oembed_meta = _oembed_fallback(url, video_id)
+        if oembed_meta:
+            return oembed_meta
+
+    raise YouTubeIngestionError(
+        "Could not extract video metadata after all strategies. "
+        "The video may be private, region-locked, or YouTube is blocking this server. "
+        "Please try the 'Upload Local Video' tab instead."
+    )
 
 
 def download_video_and_audio(

@@ -83,9 +83,22 @@ def sanitize_filename(name: str) -> str:
     return clean.strip('_')[:80]
 
 
+def get_ffmpeg_executable() -> str:
+    """Finds ffmpeg executable from PATH or bundled imageio-ffmpeg."""
+    ffmpeg_sys = shutil.which("ffmpeg")
+    if ffmpeg_sys:
+        return ffmpeg_sys
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
+
+
 def run_ffmpeg(args: List[str], timeout: int = 180) -> Tuple[bool, str]:
     """Runs FFmpeg command synchronously and captures output."""
-    cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error'] + args
+    exe = get_ffmpeg_executable()
+    cmd = [exe, '-y', '-hide_banner', '-loglevel', 'error'] + args
     try:
         proc = subprocess.run(
             cmd,

@@ -113,11 +113,28 @@ def download_video_and_audio(
         if progress_cb:
             progress_cb(f"Found existing downloaded video ({video_path.stat().st_size / (1024*1024):.1f} MB)")
     else:
-        # Primary download attempt using android/ios player clients (bypasses 403 Forbidden)
-        client_configs = [
-            {'player_client': ['android', 'ios']},
-            {'player_client': ['mweb', 'web_creator']},
-            {'player_client': ['web']}
+        # Strategy list: Try android/ios first, then web with resilient fallback
+        strategies = [
+            {
+                'format': f'bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/18/best',
+                'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
+            },
+            {
+                'format': '18/best[height<=720]/best',
+                'extractor_args': {'youtube': {'player_client': ['android']}}
+            },
+            {
+                'format': '18/best[height<=720]/best',
+                'extractor_args': {'youtube': {'player_client': ['ios']}}
+            },
+            {
+                'format': f'bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/best',
+                'extractor_args': {'youtube': {'player_client': ['mweb', 'web_creator']}}
+            },
+            {
+                'format': 'best',
+                'extractor_args': {'youtube': {'player_client': ['web']}}
+            }
         ]
 
         download_success = False
@@ -132,11 +149,11 @@ def download_video_and_audio(
                 spd = d.get('_speed_str', '').strip()
                 progress_cb(f"Downloading YouTube media: {pct} ({spd})")
 
-        for client_cfg in client_configs:
+        for strat in strategies:
             ydl_opts = {
-                'format': f'bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/bestvideo+bestaudio/best',
+                'format': strat['format'],
                 'outtmpl': str(video_path),
-                'extractor_args': {'youtube': client_cfg},
+                'extractor_args': strat['extractor_args'],
                 'quiet': True,
                 'no_warnings': True,
                 'overwrites': True,

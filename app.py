@@ -240,6 +240,23 @@ def render_studio_view():
             else:
                 st.error("❌ Invalid YouTube URL format")
 
+        with st.expander("🍪 Optional: Cloud Anti-Bot Bypass (Upload cookies.txt)", expanded=False):
+            st.caption(
+                "YouTube frequently challenges cloud servers (AWS/Streamlit) with 'Sign in to confirm you’re not a bot'. "
+                "Uploading an exported cookies.txt unlocks all restricted YouTube videos on Streamlit Cloud."
+            )
+            cookie_upload = st.file_uploader(
+                "Upload youtube_cookies.txt (Netscape format)",
+                type=["txt"],
+                key="yt_cookie_uploader"
+            )
+            cookies_dest = CREDENTIALS_DIR / "youtube_cookies.txt"
+            if cookie_upload is not None:
+                cookies_dest.write_bytes(cookie_upload.read())
+                st.success("✅ Cookies saved! Cloud downloads are now authenticated.")
+            elif cookies_dest.exists() and cookies_dest.stat().st_size > 0:
+                st.info(f"ℹ️ Active cookies detected ({cookies_dest.stat().st_size} bytes)")
+
     with source_tab2:
         st.write("Upload an MP4, MOV, or WEBM video file from your computer (100% reliable, zero YouTube throttling).")
         uploaded_file = st.file_uploader(

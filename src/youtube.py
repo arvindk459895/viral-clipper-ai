@@ -36,10 +36,11 @@ def extract_metadata(url: str) -> VideoMetadata:
     if not is_valid_youtube_url(url):
         raise YouTubeIngestionError(f"Invalid YouTube URL format: {url}")
 
+    cookie_file = CREDENTIALS_DIR / "youtube_cookies.txt"
     ydl_opts = {
+        'skip_download': True,
         'quiet': True,
         'no_warnings': True,
-        'skip_download': True,
         'extract_flat': False,
         'extractor_args': {
             'youtube': {
@@ -47,6 +48,8 @@ def extract_metadata(url: str) -> VideoMetadata:
             }
         }
     }
+    if cookie_file.exists() and cookie_file.stat().st_size > 0:
+        ydl_opts['cookiefile'] = str(cookie_file)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -149,6 +152,9 @@ def download_video_and_audio(
                 spd = d.get('_speed_str', '').strip()
                 progress_cb(f"Downloading YouTube media: {pct} ({spd})")
 
+        cookie_file = CREDENTIALS_DIR / "youtube_cookies.txt"
+        has_cookies = cookie_file.exists() and cookie_file.stat().st_size > 0
+
         for strat in strategies:
             ydl_opts = {
                 'format': strat['format'],
@@ -160,6 +166,8 @@ def download_video_and_audio(
                 'merge_output_format': 'mp4',
                 'progress_hooks': [dl_hook]
             }
+            if has_cookies:
+                ydl_opts['cookiefile'] = str(cookie_file)
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])

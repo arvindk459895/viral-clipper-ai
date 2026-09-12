@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional, Callable, List
 from pydantic import BaseModel, Field
 import yt_dlp
 
-from src.config import TEMP_DIR
+from src.config import TEMP_DIR, CREDENTIALS_DIR
 from src.utils import is_valid_youtube_url, sanitize_filename, run_ffmpeg
 
 

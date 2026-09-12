@@ -9,16 +9,6 @@ import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
-# Python 3.13/3.14 removed standard library 'audioop'. Provide compatibility shim for pydub.
-try:
-    import audioop
-except ImportError:
-    try:
-        import pyaudioop as audioop
-        sys.modules["audioop"] = audioop
-    except ImportError:
-        pass
-
 import streamlit as st
 
 # Add project root to sys.path

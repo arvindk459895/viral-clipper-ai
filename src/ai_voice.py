@@ -10,21 +10,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-import sys
-try:
-    import audioop
-except ImportError:
-    try:
-        import pyaudioop as audioop
-        sys.modules["audioop"] = audioop
-    except ImportError:
-        pass
-
 import edge_tts
-from pydub import AudioSegment
-
 from src.config import TEMP_DIR
-from src.utils import sanitize_filename
+from src.utils import sanitize_filename, get_audio_duration
 
 VOICE_PERSONAS: Dict[str, Dict[str, Any]] = {
     # Friendly Creator Aliases (Indian & International)
@@ -297,12 +285,11 @@ def generate_ai_voice(
             locale=locale,
             output_path=str(out_file)
         ))
-        seg = AudioSegment.from_file(str(out_file))
-        duration_sec = round(len(seg) / 1000.0, 3)
+        duration_sec = get_audio_duration(str(out_file))
     except Exception as e:
         print(f"[AI Voice Warning] edge_tts failed ({e}). Generating fallback silence audio.")
-        silence = AudioSegment.silent(duration=2000)
-        silence.export(str(out_file), format="mp3")
+        from src.utils import run_ffmpeg
+        run_ffmpeg(["-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "2", "-q:a", "9", "-acodec", "libmp3lame", str(out_file)])
         duration_sec = 2.0
 
     return {

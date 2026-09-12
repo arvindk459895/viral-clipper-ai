@@ -117,18 +117,44 @@ def run_ffmpeg(args: List[str], timeout: int = 180) -> Tuple[bool, str]:
         return False, str(e)
 
 
-def clean_temp_dir() -> int:
-    """Cleans files from the temporary directory. Returns number of files removed."""
-    count = 0
-    if TEMP_DIR.exists():
-        for item in TEMP_DIR.iterdir():
-            try:
-                if item.is_file():
-                    item.unlink()
-                    count += 1
-                elif item.is_dir():
-                    shutil.rmtree(item)
-                    count += 1
-            except Exception:
-                pass
-    return count
+def get_audio_duration(audio_path: str) -> float:
+    """Returns the duration of an audio file in seconds without depending on pydub/audioop."""
+    p = Path(audio_path)
+    if not p.exists():
+        return 0.0
+
+    # 1. Try soundfile
+    try:
+        import soundfile as sf
+        info = sf.info(str(p))
+        return float(info.duration)
+    except Exception:
+        pass
+
+    # 2. Try wave
+    try:
+        import wave
+        with wave.open(str(p), 'rb') as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate()
+            if rate > 0:
+                return float(frames) / float(rate)
+    except Exception:
+        pass
+
+    # 3. Try ffprobe
+    try:
+        exe = shutil.which("ffprobe")
+        if not exe:
+            exe_ffmpeg = get_ffmpeg_executable()
+            exe = exe_ffmpeg.replace("ffmpeg", "ffprobe")
+        if exe and Path(exe).exists():
+            cmd = [exe, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(p)]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+            if res.returncode == 0 and res.stdout.strip():
+                return float(res.stdout.strip())
+    except Exception:
+        pass
+
+    # Fallback default duration
+    return 2.0

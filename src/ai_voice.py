@@ -10,6 +10,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+import sys
+try:
+    import audioop
+except ImportError:
+    try:
+        import pyaudioop as audioop
+        sys.modules["audioop"] = audioop
+    except ImportError:
+        pass
+
 import edge_tts
 from pydub import AudioSegment
 

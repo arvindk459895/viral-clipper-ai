@@ -122,6 +122,11 @@ def get_demo_transcript(duration: float = 25.0) -> TranscriptResult:
             ]
         )
     ]
+    if duration:
+        segments = [s for s in segments if s.start < duration]
+        for s in segments:
+            if s.end > duration:
+                s.end = round(duration, 2)
     full_text = " ".join(s.text for s in segments)
     return TranscriptResult(language="hi", duration=duration, segments=segments, full_text=full_text)
 

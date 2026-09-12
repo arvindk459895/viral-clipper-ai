@@ -54,6 +54,7 @@ def run_pipeline(
     commentary_emotion: str = "auto",
     visual_mode: str = "video_cutaway",
     meme_style: str = "cutaway",
+    narration_speed: float = 1.5,
     **kwargs
 ) -> Dict[str, Any]:
     """
@@ -206,6 +207,7 @@ def run_pipeline(
                 script=comm_script,
                 transcript_segments=transcript.segments,
                 voice_style=voice_style,
+                narration_speed=narration_speed,
                 top_header_text=active_header,
                 visual_mode=visual_mode,
                 meme_style=meme_style,

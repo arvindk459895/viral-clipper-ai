@@ -20,45 +20,45 @@ VOICE_PERSONAS: Dict[str, Dict[str, Any]] = {
     # Friendly Creator Aliases (Indian & International)
     "madhur": {
         "voice_id": "hi-IN-MadhurNeural",
-        "rate": "+20%",
+        "rate": "+50%",
         "pitch": "+4Hz",
         "locale": "hi-IN",
-        "description": "Natural, energetic Indian male creator voice (Hinglish/Hindi - RC Hidden style)"
+        "description": "Natural, energetic Indian male creator voice (Hinglish/Hindi - RC Hidden style) at 1.5x"
     },
     "prabhat": {
         "voice_id": "en-IN-PrabhatNeural",
-        "rate": "+20%",
+        "rate": "+50%",
         "pitch": "+4Hz",
         "locale": "en-IN",
-        "description": "Punchy, fast-paced Indian English & Hinglish narrator"
+        "description": "Punchy, fast-paced Indian English & Hinglish narrator at 1.5x"
     },
     "swara": {
         "voice_id": "hi-IN-SwaraNeural",
-        "rate": "+18%",
+        "rate": "+50%",
         "pitch": "+3Hz",
         "locale": "hi-IN",
-        "description": "Expressive, energetic Indian female voice (Hinglish/Hindi)"
+        "description": "Expressive, energetic Indian female voice (Hinglish/Hindi) at 1.5x"
     },
     "neerja": {
         "voice_id": "en-IN-NeerjaExpressiveNeural",
-        "rate": "+6%",
+        "rate": "+45%",
         "pitch": "+1Hz",
         "locale": "en-IN",
-        "description": "Dynamic emotionally expressive Indian female voice"
+        "description": "Dynamic emotionally expressive Indian female voice at 1.5x"
     },
     "guy": {
         "voice_id": "en-US-GuyNeural",
-        "rate": "+12%",
+        "rate": "+50%",
         "pitch": "+2Hz",
         "locale": "en-US",
-        "description": "High-energy, punchy US commentary"
+        "description": "High-energy, punchy US commentary at 1.5x"
     },
     "eric": {
         "voice_id": "en-US-EricNeural",
-        "rate": "+8%",
+        "rate": "+48%",
         "pitch": "+0Hz",
         "locale": "en-US",
-        "description": "Witty US comedic voice"
+        "description": "Witty US comedic voice at 1.5x"
     },
     # Hinglish & Hindi Voices (Natural Indian Style)
     "hinglish_male": {
@@ -230,42 +230,45 @@ def generate_ai_voice(
     voice_style: str = "energetic",
     emotion: str = "auto",
     language: str = "auto",
+    speed: float = 1.5,
     output_path: Optional[Path] = None,
     clip_id: str = "voice"
 ) -> Dict[str, Any]:
     """
-    Synthesizes speech for editorial commentary with emotional inflection (laugh, sad, loved, excited, sarcastic)
-    and native Hinglish/Hindi neural voices.
+    Synthesizes speech for editorial commentary with energetic 1.5x pacing (+50%),
+    emotional inflection (laugh, sad, loved, excited, sarcastic), and native Hinglish/Hindi neural voices.
     Stores voice_provider, voice_id, and generation_timestamp.
     """
     profile = resolve_voice_profile(voice_style, language, text=text)
     voice_id = profile["voice_id"]
     locale = profile.get("locale", "hi-IN" if language in ["hinglish", "hindi"] else "en-US")
 
-    # Emotion pitch & rate modulation
-    rate = profile["rate"]
-    pitch = profile["pitch"]
+    # Base rate calculation: speed=1.5 maps to +50% (1.5x speed)
+    base_speed_pct = int(round((speed - 1.0) * 100))
+    pitch = profile.get("pitch", "+4Hz")
 
     clean_emo = emotion.lower().strip() if emotion else "auto"
     if clean_emo in ["laugh", "cheerful"]:
-        rate = "+20%"
+        rate_offset = 0
         pitch = "+4Hz"
     elif clean_emo in ["sad", "heartbreak"]:
-        rate = "-4%"
+        rate_offset = -8
         pitch = "-2Hz"
     elif clean_emo in ["loved", "heartfelt", "empathetic"]:
-        rate = "+8%"
+        rate_offset = -4
         pitch = "+1Hz"
     elif clean_emo in ["excited", "shocked"]:
-        rate = "+22%"
+        rate_offset = +5
         pitch = "+5Hz"
     elif clean_emo in ["sarcastic", "deadpan"]:
-        rate = "+16%"
+        rate_offset = -2
         pitch = "+2Hz"
     else:
-        # Default auto / energetic tempo
-        rate = "+20%"
+        rate_offset = 0
         pitch = "+4Hz"
+
+    final_pct = base_speed_pct + rate_offset
+    rate = f"+{final_pct}%" if final_pct >= 0 else f"{final_pct}%"
 
     safe_id = sanitize_filename(clip_id)
     out_file = output_path or (TEMP_DIR / f"{safe_id}_{voice_style}_{int(datetime.now().timestamp())}.mp3")

@@ -5,6 +5,7 @@ candidate detection, Gemini comedy intelligence, 9:16 Shorts rendering, and expo
 """
 import os
 import sys
+import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 import streamlit as st
@@ -292,7 +293,7 @@ def render_studio_view():
                     help="Applies neural SSML emotion modulation to voiceover delivery."
                 )
 
-            v_col1, v_col2 = st.columns(2)
+            v_col1, v_col2, v_col3 = st.columns(3)
             with v_col1:
                 voice_choice = st.selectbox(
                     "AI Voice Persona",
@@ -308,6 +309,18 @@ def render_studio_view():
                     help="Natural neural voice personas. Madhur & Prabhat deliver authentic Indian creator cadence (RC Hidden style)."
                 )
             with v_col2:
+                narration_speed_choice = st.selectbox(
+                    "Narration Speed / Pacing",
+                    options=[
+                        "⚡ 1.5x (Fast & Viral - Creator Standard)",
+                        "🚀 1.75x (Hyper High-Energy)",
+                        "🏃 1.25x (Punchy)",
+                        "🚶 1.0x (Normal Pace)"
+                    ],
+                    index=0,
+                    help="Sets AI voiceover tempo. 1.5x is standard for fast viral Indian comedy reaction shorts."
+                )
+            with v_col3:
                 meme_style_choice = st.selectbox(
                     "Meme & Cutaway Style",
                     options=[
@@ -328,6 +341,14 @@ def render_studio_view():
                 "🎙️ Eric (US Male - Comedic English)": "eric"
             }
             voice_persona = voice_map.get(voice_choice, "madhur")
+
+            speed_map = {
+                "⚡ 1.5x (Fast & Viral - Creator Standard)": 1.5,
+                "🚀 1.75x (Hyper High-Energy)": 1.75,
+                "🏃 1.25x (Punchy)": 1.25,
+                "🚶 1.0x (Normal Pace)": 1.0
+            }
+            active_speed = speed_map.get(narration_speed_choice, 1.5)
 
             if "Video Meme Cutaway" in meme_style_choice:
                 active_vis_mode = "video_cutaway"
@@ -366,6 +387,7 @@ def render_studio_view():
             quality_bar = 70
             active_comm_lang = "auto"
             active_comm_emo = "auto"
+            active_speed = 1.5
             st.info("⚡ Standard Opus Clip Mode active (Acoustic detection + karaoke subtitles + reaction memes).")
 
     st.divider()
@@ -486,7 +508,8 @@ def render_studio_view():
                     commentary_language=active_comm_lang,
                     commentary_emotion=active_comm_emo,
                     visual_mode=active_vis_mode,
-                    meme_style=active_meme_style
+                    meme_style=active_meme_style,
+                    narration_speed=active_speed
                 )
                 st.session_state.pipeline_results = results
                 st.session_state.pipeline_status = "completed"

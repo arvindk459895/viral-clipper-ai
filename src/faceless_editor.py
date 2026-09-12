@@ -105,6 +105,7 @@ def _render_paused_frame_with_voiceover(
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-r", str(TARGET_FPS),
         "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
         "-t", dur_str,
+        "-shortest",
         str(output_path)
     ]
     subprocess.run(cmd_render, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -179,17 +180,19 @@ def _render_source_video_segment(
             f"[fg]scale={TARGET_WIDTH}:608,eq=contrast=1.22:brightness=-0.04:saturation=1.15,unsharp=5:5:0.8:5:5:0.0[scaled];"
             f"[blurred][scaled]overlay=0:656[staged];"
             f"[2:v]scale=220:220[badge];"
-            f"[staged][badge]overlay=W-w-60:680:eof_action=repeat[v]"
+            f"[staged][badge]overlay=W-w-60:680:shortest=1[v]"
         )
         cmd = [
             "ffmpeg", "-y",
             "-ss", ss_str, "-t", t_str, "-i", video_path,
             "-ss", ss_str, "-t", t_str, "-i", audio_path,
-            "-loop", "1", "-t", t_str, "-i", overlay_badge,
+            "-i", str(overlay_badge),
             "-filter_complex", filter_str,
             "-map", "[v]", "-map", "1:a",
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-r", str(TARGET_FPS),
             "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+            "-t", t_str,
+            "-shortest",
             str(output_path)
         ]
     else:
@@ -207,6 +210,8 @@ def _render_source_video_segment(
             "-map", "[v]", "-map", "1:a",
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-r", str(TARGET_FPS),
             "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+            "-t", t_str,
+            "-shortest",
             str(output_path)
         ]
 
@@ -317,6 +322,7 @@ def render_faceless_commentary_short(
     script: CommentaryScript,
     transcript_segments: List[TranscriptSegment],
     voice_style: str = "madhur",
+    narration_speed: float = 1.5,
     output_path: Optional[Path] = None,
     top_header_text: Optional[str] = None,
     editorial_purpose: str = "Viral comedy reaction, creator commentary & timing analysis",
@@ -329,7 +335,7 @@ def render_faceless_commentary_short(
 ) -> Dict[str, Any]:
     """
     Renders a complete Faceless AI Commentary Short (RC Hidden Style):
-    - Generates AI voiceover audio across hook and outro segments.
+    - Generates AI voiceover audio across hook and outro segments at energetic 1.5x pacing.
     - Slices source video into discrete setup and punchline/reaction beats.
     - Splices a seamless 1-2s viral video meme cutaway clip at the climax.
     - Plays AI voiceover over source video with ducked background audio (no static text cards).
@@ -343,7 +349,7 @@ def render_faceless_commentary_short(
     out_file = output_path or (OUTPUTS_DIR / f"{safe_id}_faceless_{voice_style}.mp4")
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # 1. Synthesize AI Voices with Native Language & Emotion
+    # 1. Synthesize AI Voices with Native Language & Emotion at 1.5x speed
     lang = getattr(script, "language", "hinglish")
     hook_emo = getattr(script, "hook_emotion", "excited")
     ctx_emo = getattr(script, "context_emotion", "sarcastic")
@@ -355,6 +361,7 @@ def render_faceless_commentary_short(
         voice_style=voice_style,
         emotion=hook_emo,
         language=lang,
+        speed=narration_speed,
         clip_id=f"{safe_id}_v1_hook"
     )
     context_v = generate_ai_voice(
@@ -362,6 +369,7 @@ def render_faceless_commentary_short(
         voice_style=voice_style,
         emotion=ctx_emo,
         language=lang,
+        speed=narration_speed,
         clip_id=f"{safe_id}_v2_ctx"
     )
     analysis_v = generate_ai_voice(
@@ -369,6 +377,7 @@ def render_faceless_commentary_short(
         voice_style=voice_style,
         emotion=ana_emo,
         language=lang,
+        speed=narration_speed,
         clip_id=f"{safe_id}_v3_ana"
     )
     conclusion_v = generate_ai_voice(
@@ -376,6 +385,7 @@ def render_faceless_commentary_short(
         voice_style=voice_style,
         emotion=concl_emo,
         language=lang,
+        speed=narration_speed,
         clip_id=f"{safe_id}_v4_concl"
     )
 
@@ -393,7 +403,7 @@ def render_faceless_commentary_short(
     if visual_mode == "video_cutaway":
         # === RC HIDDEN / VIRAL SHORTS MODE: Engaging 6-Beat Reaction Short ===
         # Beat 1 Duration (Hook)
-        hook_dur = max(2.5, round(hook_v["duration_sec"] + 0.3, 2))
+        hook_dur = max(2.2, round(hook_v["duration_sec"] + 0.2, 2))
 
         # Beat 5 Audio & Duration (Outro Roaster Verdict & CTA)
         outro_text = clean_spoken_text(f"{script.analysis_reaction} {script.conclusion}")
@@ -402,10 +412,11 @@ def render_faceless_commentary_short(
             voice_style=voice_style,
             emotion=ana_emo,
             language=lang,
+            speed=narration_speed,
             clip_id=f"{safe_id}_v_outro"
         )
         # Ensure outro duration ALWAYS covers the full generated voiceover audio + comfortable padding
-        outro_dur = max(3.0, round(outro_v["duration_sec"] + 0.4, 2))
+        outro_dur = max(2.5, round(outro_v["duration_sec"] + 0.3, 2))
 
         # Beat 4 Meme Selection & Duration
         resolved_humor = humor_type or getattr(candidate, "humor_type", "unexpected_answer")
@@ -426,6 +437,14 @@ def render_faceless_commentary_short(
         else:
             meme_dur = round(context_v["duration_sec"], 2)
 
+        # Probe source video duration to prevent any out-of-bounds frame extraction
+        total_vid_dur = None
+        try:
+            probe_vid = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)]
+            total_vid_dur = float(subprocess.check_output(probe_vid, text=True).strip())
+        except Exception:
+            pass
+
         # Dynamic YouTube Shorts Duration Budget (Max 58.0s to strictly stay within 60s limit)
         MAX_TOTAL_SHORT_DUR = 58.0
         ai_overhead = round(hook_dur + meme_dur + outro_dur, 2)
@@ -439,38 +458,48 @@ def render_faceless_commentary_short(
         if punch_t <= cand_start + 1.0:
             punch_t = cand_start + 3.5
         if cand_end <= punch_t + 1.0:
-            cand_end = punch_t + 3.0
+            cand_end = punch_t + 5.0
 
-        # Find natural punchline climax / bit resolution in [punch_t + 4.0, cand_end]
-        climax_candidates = [
+        # Look for the natural conclusion of the joke/scene
+        # The punchline climax & audience reaction extends through and beyond punch_t
+        # Find all sentence endings or speech pauses after punch_t
+        post_punch_segs = [
             s for s in transcript_segments
-            if punch_t + 4.0 <= s.end <= cand_end and (
-                is_clean_sentence_end(s.text) or s.text.strip().endswith(("?", "!", ".", "\u0964", "\u0965"))
-            )
+            if s.end >= punch_t + 1.5 and s.start <= cand_end + 10.0
         ]
 
-        target_resolution = None
-        for s in climax_candidates:
-            if "zindagi" in s.text.lower() or "bhai" in s.text.lower() or s.end <= 1371.0:
-                target_resolution = s.end
+        # Prioritize clean thought ends after punch_t that fit within the Shorts budget
+        clean_ends = [
+            s.end for s in post_punch_segs
+            if (is_clean_sentence_end(s.text) or s.text.strip().endswith(("?", "!", ".", "।", "॥")))
+            and s.end >= punch_t + 2.0
+        ]
 
-        if not target_resolution:
-            target_resolution = climax_candidates[-1].end if climax_candidates else cand_end
+        if clean_ends:
+            # Pick the furthest clean sentence end that fits within our source duration budget
+            budgeted_ends = [e for e in clean_ends if (e - cand_start) <= max_source_budget]
+            target_resolution = budgeted_ends[-1] if budgeted_ends else clean_ends[0]
+        else:
+            # If no explicit punctuation, use the latest transcript segment within budget
+            budgeted_segs = [s.end for s in post_punch_segs if (s.end - cand_start) <= max_source_budget]
+            target_resolution = budgeted_segs[-1] if budgeted_segs else max(cand_end, punch_t + 5.0)
 
         scene_end = round(target_resolution, 2)
+        if total_vid_dur and total_vid_dur > 2.0:
+            scene_end = min(scene_end, round(total_vid_dur - 0.1, 2))
 
-        # Budget source duration without ever truncating the punchline resolution
+        # Budget source duration: Start from cand_start, or if the scene is long, ensure setup has at least 8-12s
         req_dur = round(scene_end - cand_start, 2)
         if req_dur <= max_source_budget:
             scene_start = cand_start
         else:
-            # Trim the front (setup) to fit within Shorts limit, preserving the complete punchline climax
-            raw_start = round(scene_end - max_source_budget, 2)
+            # If the entire story exceeds budget, back up from punch_t to give ample setup
+            raw_start = max(cand_start, round(scene_end - max_source_budget, 2))
             valid_starts = [
                 s.start for s in transcript_segments
-                if raw_start - 1.0 <= s.start <= punch_t - 4.0
+                if raw_start - 2.0 <= s.start <= punch_t - 5.0
             ]
-            scene_start = round(valid_starts[0], 2) if valid_starts else max(cand_start, raw_start)
+            scene_start = round(valid_starts[0], 2) if valid_starts else raw_start
 
         # Snap scene_start and scene_end cleanly to speech boundaries so words/sentences are never sliced mid-syllable
         for idx, s in enumerate(transcript_segments):
@@ -539,7 +568,9 @@ def render_faceless_commentary_short(
         # Beat 5: Roaster Verdict & Outro (Video PAUSES on reaction face while creator roasts + CTA)
         if progress_callback:
             progress_callback(0.82, "Rendering Beat 5: Outro commentary & Like/Subscribe CTA...")
-        outro_frame_t = round(max(punch_start + 1.0, min(clip_end - 0.2, punch_end - 0.1)), 2)
+        max_frame_t = (total_vid_dur - 0.2) if total_vid_dur else (scene_end - 0.2)
+        target_frame_t = max(punch_start + 0.5, scene_end - 0.2)
+        outro_frame_t = round(max(0.5, min(max_frame_t, target_frame_t)), 2)
         seg5_path = seg_dir / "seg5_outro.mp4"
         _render_paused_frame_with_voiceover(
             video_path=video_path,

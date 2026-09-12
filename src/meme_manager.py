@@ -40,13 +40,29 @@ class AssetLibraryManager:
             self.seed_original_assets()
 
     def load(self):
-        """Loads asset catalog from JSON."""
+        """Loads asset catalog from JSON and normalizes paths for the current machine."""
         if self.library_path.exists():
             try:
                 data = json.loads(self.library_path.read_text(encoding="utf-8"))
-                self.assets = {k: AssetItem(**v) for k, v in data.items()}
+                self.assets = {}
+                for k, v in data.items():
+                    fname = v.get("filename", "")
+                    cat = v.get("asset_category", "")
+                    if cat == "sfx":
+                        v["file_path"] = str(SFX_DIR / fname)
+                    elif cat == "music":
+                        v["file_path"] = str(MUSIC_DIR / fname)
+                    else:
+                        v["file_path"] = str(MEMES_DIR / fname)
+                    self.assets[k] = AssetItem(**v)
             except Exception:
                 self.assets = {}
+
+        # Re-seed if catalog is empty or any generated file is physically missing
+        missing_files = any(not Path(a.file_path).exists() for a in self.assets.values())
+        if not self.assets or missing_files:
+            self.seed_original_assets()
+            self.save()
 
     def save(self):
         """Saves asset catalog to JSON."""

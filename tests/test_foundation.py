@@ -78,3 +78,11 @@ def test_api_key_persistence(tmp_path, monkeypatch):
     assert config.save_api_key_locally("") is True
     assert not test_key_file.exists()
     assert config.load_saved_api_key() == ""
+
+
+def test_authentication():
+    from src.config import verify_login_credentials
+    assert verify_login_credentials("7372817332", "8210501077amit") is True
+    assert verify_login_credentials(" 7372817332 ", " 8210501077amit ") is True
+    assert verify_login_credentials("wrong_user", "8210501077amit") is False
+    assert verify_login_credentials("7372817332", "wrong_password") is False

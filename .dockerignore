@@ -1,0 +1,11 @@
+﻿.git
+.venv
+__pycache__
+*.pyc
+temp/*
+!temp/.gitkeep
+outputs/*
+!outputs/.gitkeep
+.gemini_api_key
+credentials/*
+!credentials/.gitkeep

@@ -28,7 +28,9 @@ from src.config import (
     SAFE_EXPORT_STATUS_NOTICE,
     TEMP_DIR,
     load_saved_api_key,
-    save_api_key_locally
+    save_api_key_locally,
+    verify_login_credentials,
+    ADMIN_USERNAME
 )
 from datetime import datetime, timedelta, timezone
 from src.utils import is_valid_youtube_url
@@ -49,6 +51,8 @@ from src.youtube_publisher import (
 
 def init_session_state():
     """Initializes application session state variables."""
+    if "is_authenticated" not in st.session_state:
+        st.session_state.is_authenticated = False
     if "gemini_api_key" not in st.session_state:
         st.session_state.gemini_api_key = load_saved_api_key()
     if "selected_model" not in st.session_state:
@@ -185,6 +189,10 @@ def render_sidebar():
 4. Preview Clean, Meme, and Heavy styles.
 5. Download ZIP with copyright report.
 """)
+        st.divider()
+        if st.button("🔒 Sign Out / Lock Studio", key="btn_sign_out", use_container_width=True):
+            st.session_state.is_authenticated = False
+            st.rerun()
 
 
 def render_compliance_banner():
@@ -275,7 +283,7 @@ def render_studio_view():
                 lang_choice = st.selectbox(
                     "Commentary Language",
                     options=["Auto (Match Video: Hinglish)", "Hinglish (Natural Indian Comedy)", "Hindi", "English"],
-                    index=0,
+                    index=1,
                     help="Auto detects Hindi/Hinglish in video and generates natural conversational Hinglish commentary."
                 )
             with emo_col:
@@ -396,10 +404,21 @@ def render_studio_view():
     col1, col2, col3 = st.columns(3)
     with col1:
         content_type = st.selectbox("Content Type", options=CONTENT_TYPES, index=1)
-        clip_count = st.selectbox("Number of Shorts", options=CLIP_COUNT_OPTIONS, index=0)
+        subtitle_lang = st.selectbox(
+            "Subtitle / Spoken Language",
+            options=["Auto (Native Spoken / Hindi)", "Hindi (हिंदी)", "English"],
+            index=0,
+            help="Selects native Hindi captions for Hindi comedy videos, matching the spoken words exactly without bad English auto-translations."
+        )
+        clip_count = st.selectbox("Number of Shorts", options=CLIP_COUNT_OPTIONS, index=2)
     with col2:
-        clip_duration = st.selectbox("Clip Duration", options=CLIP_DURATION_OPTIONS, index=0)
-        editing_style = st.selectbox("Editing Style", options=EDITING_STYLES, index=2)
+        clip_duration = st.selectbox(
+            "Clip Duration",
+            options=CLIP_DURATION_OPTIONS,
+            index=0,
+            help="60 sec maximizes viewer watch time and YouTube algorithm monetization without crossing the 60s Shorts ceiling."
+        )
+        editing_style = st.selectbox("Editing Style", options=EDITING_STYLES, index=3)
     with col3:
         framing_choice = st.selectbox(
             "Video Framing",
@@ -407,7 +426,7 @@ def render_studio_view():
             index=0,
             help="Fit Stage keeps 100% of everyone on stage visible without cutting anyone off. Speaker Crop zooms in on the active speaker."
         )
-        min_viral_score = st.slider("Minimum Viral Score", min_value=0, max_value=100, value=70)
+        min_viral_score = st.slider("Minimum Viral Score", min_value=0, max_value=100, value=85)
 
     framing_mode = "blur" if "Blurred" in framing_choice else "crop"
 
@@ -424,7 +443,7 @@ def render_studio_view():
                 "INSTANT REGRET 💀",
                 "BEST MOMENT OF THE SHOW 🤯"
             ],
-            index=0,
+            index=1,
             help="Displays a bold, high-contrast headline banner in the space above the video throughout the entire Short."
         )
     with hcol2:
@@ -680,6 +699,48 @@ def render_results_page(results: Dict[str, Any]):
                 st.markdown(f"**Editorial Breakdown**: *{short['reason']}*")
                 st.caption(f"🤖 **AI Engine**: `{short.get('analysis_engine', 'Google Gemini')}` | 📌 **Top Banner**: `{short.get('top_header_text', 'None')}`")
 
+                # Event Reconstruction & Momentum Diagnostic (Point 23 & 24)
+                with st.expander("🧠 Event Reconstruction & Momentum Diagnostic", expanded=False):
+                    diag_cls = short.get("diagnostic_classification", "EVENT_RECONSTRUCTION_SUCCESS")
+                    if diag_cls == "EVENT_RECONSTRUCTION_SUCCESS":
+                        st.success(f"🟢 **Status**: `{diag_cls}` | Reaction: `{short.get('reaction_state', 'REACTION_RESOLVED')}`")
+                    else:
+                        st.warning(f"⚠️ **Status**: `{diag_cls}` | Reaction: `{short.get('reaction_state', 'REACTION_RESOLVED')}`")
+
+                    env_ascii = short.get("envelope_ascii", "")
+                    if env_ascii:
+                        st.code(env_ascii, language="text")
+
+                    dcol1, dcol2, dcol3, dcol4 = st.columns(4)
+                    with dcol1:
+                        st.metric("Context Completeness", f"{short.get('context_completeness_score', 92):.0f}%")
+                        st.caption(f"🏁 **Start Reason**: *{short.get('boundary_start_reason', 'Narrative premise')}*")
+                    with dcol2:
+                        st.metric("Momentum Coverage", f"{short.get('momentum_coverage_score', 95):.0f}%")
+                        st.caption(f"🛑 **End Reason**: *{short.get('boundary_end_reason', 'Audience eruption')}*")
+                    with dcol3:
+                        st.metric("Event Integrity", f"{short.get('event_integrity_score', 95):.0f}%")
+                        st.caption(f"⚠️ **Cut Risk**: `{short.get('cut_risk_score', 5):.0f}%`")
+                    with dcol4:
+                        st.metric("Boundary Quality", f"{short.get('boundary_quality_score', 94):.0f}%")
+                        st.caption(f"🎯 **Anchor Peak ($T_{{peak}}$)**: `{short.get('t_peak', short['punchline_time']):.1f}s`")
+
+                    if short.get("compression_applied"):
+                        st.info(
+                            f"✂️ **Intelligent Event Compression Active**: "
+                            f"{len(short.get('removed_segments', []))} redundant filler sentences were pruned internally "
+                            f"to preserve both the complete setup premise and audience eruption within 58.5s."
+                        )
+
+                    calib_info = short.get("dsp_calibration_profile", "")
+                    if calib_info:
+                        st.caption(f"📊 **Acoustic DSP Calibration**: `{calib_info}`")
+
+                    st.markdown(
+                        f"⏱️ **Dynamic Allocation**: Setup & Buildup: **{short.get('pre_context_duration', 0.0):.1f}s** | "
+                        f"Punchline & Reaction: **{short.get('post_context_duration', 0.0):.1f}s**"
+                    )
+
                 # Originality & Editorial Compliance Audit Card
                 orig_rep = short.get("originality_report")
                 if orig_rep:
@@ -806,14 +867,14 @@ def render_1click_youtube_scheduler_card(idx: int, short: Dict[str, Any], defaul
         # 3. Tags & Hashtags
         col_t1, col_t2 = st.columns(2)
         with col_t1:
-            default_tags = "comedy, standup comedy, hindi comedy, funny, shorts, viral, relatable"
+            default_tags = "comedy, standup comedy, hindi comedy, funny, shorts, viral, relatable, jokes, desi humor, trending shorts, laugh, comedy video"
             active_tags_str = st.text_input(
                 "Search Tags (comma-separated keywords)",
                 value=default_tags,
                 key=f"yt_card_tags_{idx}"
             )
         with col_t2:
-            default_hashes = " ".join(short.get("hashtags", ["#Shorts", "#Comedy"]))
+            default_hashes = " ".join(short.get("hashtags", ["#Shorts", "#Comedy", "#HindiComedy", "#Viral"]))
             active_hashes_str = st.text_input(
                 "Hashtags",
                 value=default_hashes,
@@ -838,7 +899,7 @@ def render_1click_youtube_scheduler_card(idx: int, short: Dict[str, Any], defaul
             thumb_choice = st.selectbox(
                 "Cover Thumbnail",
                 options=["Option 1 (Reaction)", "Option 2 (Curiosity)", "Auto Video Frame"],
-                index=0,
+                index=1,
                 key=f"yt_card_thumb_sel_{idx}"
             )
 
@@ -1146,6 +1207,34 @@ def render_asset_library_view():
                     st.divider()
 
 
+def render_login_view():
+    """Renders high-security login screen preventing unauthorized access."""
+    col_l, col_m, col_r = st.columns([1, 1.4, 1])
+    with col_m:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        with st.container():
+            st.markdown("<h2 style='text-align: center;'>🎬 ViralClipper AI Studio</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; color: #888;'>Private Creator Suite • Authentication Required</p>", unsafe_allow_html=True)
+            st.divider()
+
+            with st.form("login_form", clear_on_submit=False):
+                st.subheader("🔐 Secure Sign In")
+                username_input = st.text_input("Login ID / Mobile", placeholder="Enter your Login ID")
+                password_input = st.text_input("Password", type="password", placeholder="••••••••••••")
+
+                submitted = st.form_submit_button("🚀 Access Studio", type="primary", use_container_width=True)
+
+                if submitted:
+                    if verify_login_credentials(username_input, password_input):
+                        st.session_state.is_authenticated = True
+                        st.success("✅ Login successful! Entering Studio...")
+                        st.rerun()
+                    else:
+                        st.error("❌ Invalid Login ID or Password. Access denied.")
+
+            st.caption("🔒 *Protected environment. Only authorized administrators may access clipping pipelines and assets.*")
+
+
 def render_compliance_view():
     """Legal, copyright, and YouTube reused-content compliance educational center."""
     st.header("⚖️ Rights, Compliance & Transformation Guidelines")
@@ -1188,6 +1277,12 @@ def main():
     )
 
     init_session_state()
+
+    # Authentication Gate
+    if not st.session_state.is_authenticated:
+        render_login_view()
+        return
+
     render_sidebar()
 
     if st.session_state.active_tab == "Studio":

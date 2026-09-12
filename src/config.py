@@ -1,6 +1,7 @@
 """
 ViralClipper AI Studio - Configuration Module
 """
+import os
 from pathlib import Path
 from typing import Dict, List
 
@@ -63,7 +64,14 @@ CONTENT_TYPES: List[str] = [
 ]
 
 CLIP_COUNT_OPTIONS: List[int] = [3, 5, 10, 20]
-CLIP_DURATION_OPTIONS: List[str] = ["15 sec", "30 sec", "45 sec", "60 sec", "Auto"]
+CLIP_DURATION_OPTIONS: List[str] = [
+    "60 sec",
+    "50 - 59 sec",
+    "45 - 55 sec",
+    "30 - 45 sec",
+    "15 - 30 sec",
+    "Auto"
+]
 EDITING_STYLES: List[str] = ["Clean", "Modern", "Meme", "Heavy Meme"]
 TRANSFORMATION_LEVELS: List[str] = ["1. Clean", "2. Enhanced", "3. Commentary", "4. Meme-heavy"]
 
@@ -113,3 +121,12 @@ def save_api_key_locally(key: str) -> bool:
         return True
     except Exception:
         return False
+
+
+ADMIN_USERNAME = os.getenv("STUDIO_LOGIN_USER", "7372817332")
+ADMIN_PASSWORD = os.getenv("STUDIO_LOGIN_PASS", "8210501077amit")
+
+
+def verify_login_credentials(user_input: str, pass_input: str) -> bool:
+    """Validates login credentials against secure system credentials."""
+    return user_input.strip() == ADMIN_USERNAME and pass_input.strip() == ADMIN_PASSWORD

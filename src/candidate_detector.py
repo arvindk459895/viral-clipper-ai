@@ -4,12 +4,18 @@ Identifies comedic and high-energy candidate clips using comedy structure:
 HOOK -> SETUP -> PAUSE -> PUNCHLINE -> REACTION -> LAUGHTER.
 Performs timestamp search, boundary expansion, and overlap deduplication.
 """
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 from pydantic import BaseModel, Field
 
 from src.transcription import TranscriptResult, TranscriptSegment
 from src.audio_analysis import AudioAnalysisResult
+from src.context_expander import (
+    validate_micro_pause,
+    merge_contiguous_event_peaks,
+    reconstruct_narrative_event,
+    ReconstructedEvent
+)
 
 
 class CandidateClip(BaseModel):
@@ -46,6 +52,30 @@ class CandidateClip(BaseModel):
     rewatch_score: float = 0.0
     shareability_score: float = 0.0
     is_sponsor: bool = False
+    # Context Expansion & Event Reconstruction Metadata
+    t_peak: float = 0.0
+    t_event_start: float = 0.0
+    t_event_end: float = 0.0
+    laughter_start: float = 0.0
+    laughter_end: float = 0.0
+    pre_context_duration: float = 0.0
+    post_context_duration: float = 0.0
+    context_completeness_score: float = 0.0
+    momentum_coverage_score: float = 0.0
+    boundary_quality_score: float = 0.0
+    duration_fitness_score: float = 0.0
+    boundary_start_reason: str = ""
+    boundary_end_reason: str = ""
+    envelope_ascii: str = ""
+    event_integrity_score: float = 0.0
+    cut_risk_score: float = 0.0
+    narrative_dependency_score: float = 0.0
+    compression_applied: bool = False
+    compressed_segments: List[Tuple[float, float]] = Field(default_factory=list)
+    removed_segments: List[str] = Field(default_factory=list)
+    diagnostic_classification: str = "EVENT_RECONSTRUCTION_SUCCESS"
+    reaction_state: str = "REACTION_RESOLVED"
+    dsp_calibration_profile: str = ""
 
 
 def calculate_overlap_ratio(start_a: float, end_a: float, start_b: float, end_b: float) -> float:
@@ -124,15 +154,16 @@ def detect_candidate_moments(
     """
     from src.clip_scorer import calculate_grounded_virality_components, calibrate_viral_scores
 
-    preferred_duration = 32.0
-    if "15" in target_duration:
+    t_str = str(target_duration).lower()
+    preferred_duration = 54.0
+    if "15" in t_str and "50" not in t_str:
         preferred_duration = 20.0
-    elif "30" in target_duration:
+    elif "30" in t_str and "50" not in t_str:
         preferred_duration = 32.0
-    elif "45" in target_duration:
-        preferred_duration = 44.0
-    elif "60" in target_duration:
-        preferred_duration = 55.0
+    elif "45" in t_str and "50" not in t_str and "59" not in t_str:
+        preferred_duration = 48.0
+    elif any(x in t_str for x in ["50", "55", "59", "60", "auto"]):
+        preferred_duration = 54.0
 
     total_duration = max(transcript.duration, audio_analysis.duration)
     raw_candidates: List[CandidateClip] = []
@@ -168,9 +199,15 @@ def detect_candidate_moments(
         peaks_before = [p for p in audio_analysis.peak_timestamps if cl_start - 3.0 <= p <= cl_start + 0.5]
         punch_t = peaks_before[-1] if peaks_before else cl_start
 
-        # Detect comedic pause right before punchline [punch_t - 2.5, punch_t]
+        # Detect & validate comedic pause right before punchline [punch_t - 2.5, punch_t]
         pauses_before = [p for p in audio_analysis.pause_timestamps if punch_t - 2.5 <= p <= punch_t]
-        has_pause = len(pauses_before) > 0
+        has_validated_pause = False
+        pause_conf = 0.0
+        for p in pauses_before:
+            is_valid, conf, _ = validate_micro_pause(p, audio_analysis, transcript)
+            if is_valid:
+                has_validated_pause = True
+                pause_conf = max(pause_conf, conf)
 
         candidate_anchors.append({
             "punchline": punch_t,
@@ -179,9 +216,25 @@ def detect_candidate_moments(
             "laughter_dur": cl_dur,
             "burst_count": burst_count,
             "mean_intensity": mean_int,
-            "has_pause": has_pause,
+            "has_pause": has_validated_pause or (len(pauses_before) > 0),
+            "pause_confidence": pause_conf,
             "has_peak": len(peaks_before) > 0
         })
+
+    # Deadpan & Subtle Delivery Support: multi-signal anchor without high vocal burst
+    for ev in audio_analysis.events:
+        if ev.event_type == "subtle_peak":
+            candidate_anchors.append({
+                "punchline": ev.start_time,
+                "laughter_start": ev.start_time + 0.3,
+                "reaction_end": min(total_duration, ev.end_time + 4.0),
+                "laughter_dur": 3.0,
+                "burst_count": 1,
+                "mean_intensity": ev.intensity,
+                "has_pause": True,
+                "pause_confidence": 0.85,
+                "has_peak": False
+            })
 
     # If few or no laughter clusters detected (e.g. synthetic demo media or speech only), add acoustic peaks
     if len(candidate_anchors) < 5:
@@ -211,8 +264,19 @@ def detect_candidate_moments(
                     "has_peak": False
                 })
 
+    # 3. Merge contiguous event peaks belonging to the same comedic bit
+    peak_dicts = [
+        {"t_peak": a["punchline"], "reaction_end": a["reaction_end"], "anchor": a}
+        for a in candidate_anchors
+    ]
+    merged_peaks = merge_contiguous_event_peaks(peak_dicts, max_gap_sec=8.0)
+    for p in merged_peaks:
+        p["anchor"]["punchline"] = p["t_peak"]
+        p["anchor"]["reaction_end"] = p["reaction_end"]
+    merged_anchors = [p["anchor"] for p in merged_peaks]
+
     clip_index = 1
-    for anc in candidate_anchors:
+    for anc in merged_anchors:
         punch_t = anc["punchline"]
         cl_dur = anc["laughter_dur"]
         cl_end = anc["reaction_end"]
@@ -221,59 +285,21 @@ def detect_candidate_moments(
         has_pause = anc["has_pause"]
         has_peak = anc["has_peak"]
 
-        # Setup duration target: 50-60% of preferred duration
-        setup_target = preferred_duration * 0.55
-        # Reaction target: MUST encompass full laughter cluster + generous post-laughter comedic resolution
-        react_target = max(9.0, min(38.0, (cl_end - punch_t) + 6.0))
+        # Reconstruct narrative event: T_peak is an anchor, NOT a boundary!
+        recon: ReconstructedEvent = reconstruct_narrative_event(
+            t_peak=punch_t,
+            transcript=transcript,
+            audio_analysis=audio_analysis,
+            total_video_duration=total_duration,
+            target_duration=preferred_duration,
+            max_clip_duration=max_clip_duration,
+            min_clip_duration=min_clip_duration
+        )
 
-        ideal_start = max(0.0, punch_t - setup_target)
-        ideal_end = min(total_duration, punch_t + react_target)
+        clip_start = recon.t_final_start
+        clip_end = recon.t_final_end
+        duration = recon.total_duration
 
-        # Snap start time cleanly to sentence boundary
-        valid_start_segs = [
-            s for s in transcript.segments
-            if max(0.0, punch_t - (setup_target * 1.6)) <= s.start <= punch_t - 5.0
-        ]
-        if valid_start_segs:
-            best_start_seg = min(valid_start_segs, key=lambda s: abs(s.start - ideal_start))
-            clip_start = best_start_seg.start
-        else:
-            clip_start = ideal_start
-
-        # Snap end time cleanly to sentence boundary AFTER laughter reaction has subsided
-        min_end_t = max(punch_t + 5.0, cl_end + 1.2)
-        max_end_t = min(total_duration, punch_t + 38.0)
-
-        valid_end_segs = [
-            s for s in transcript.segments
-            if min_end_t <= s.end <= max_end_t
-        ]
-        clean_end_segs = [s for s in valid_end_segs if is_clean_sentence_end(s.text)]
-        candidate_end_pool = clean_end_segs if clean_end_segs else valid_end_segs
-
-        if candidate_end_pool:
-            best_end_seg = min(candidate_end_pool, key=lambda s: abs(s.end - ideal_end))
-            clip_end = best_end_seg.end
-            # Walk forward through contiguous thought segments until clean sentence / bit conclusion
-            try:
-                s_idx = transcript.segments.index(best_end_seg)
-                for next_s in transcript.segments[s_idx + 1: s_idx + 8]:
-                    if (next_s.end - clip_start) > max_clip_duration - 2.0:
-                        break
-                    # If current segment has a dangling ending or next segment is an immediate exclamation/punchline tag
-                    clip_end = next_s.end
-                    if is_clean_sentence_end(next_s.text):
-                        break
-            except (ValueError, IndexError):
-                pass
-        else:
-            clip_end = ideal_end
-
-        # Strictly enforce punchline bracketing inside the clip
-        clip_start = min(clip_start, max(0.0, punch_t - 5.0))
-        clip_end = max(clip_end, min(total_duration, punch_t + 5.0))
-
-        duration = clip_end - clip_start
         if duration < min_clip_duration or duration > max_clip_duration:
             continue
 
@@ -344,7 +370,30 @@ def detect_candidate_moments(
             standalone_score=score_breakdown.standalone_score,
             rewatch_score=score_breakdown.rewatch_score,
             shareability_score=score_breakdown.shareability_score,
-            is_sponsor=is_sponsor
+            is_sponsor=is_sponsor,
+            t_peak=recon.t_peak,
+            t_event_start=recon.t_event_start,
+            t_event_end=recon.t_event_end,
+            laughter_start=recon.laughter_start,
+            laughter_end=recon.laughter_end,
+            pre_context_duration=recon.pre_context_duration,
+            post_context_duration=recon.post_context_duration,
+            context_completeness_score=recon.context_completeness_score,
+            momentum_coverage_score=recon.momentum_coverage_score,
+            boundary_quality_score=recon.boundary_quality_score,
+            duration_fitness_score=recon.duration_fitness_score,
+            boundary_start_reason=recon.boundary_start_reason,
+            boundary_end_reason=recon.boundary_end_reason,
+            envelope_ascii=recon.envelope_ascii,
+            event_integrity_score=recon.event_integrity_score,
+            cut_risk_score=recon.cut_risk_score,
+            narrative_dependency_score=recon.narrative_dependency_score,
+            compression_applied=recon.compression_applied,
+            compressed_segments=recon.compressed_segments,
+            removed_segments=recon.removed_segments,
+            diagnostic_classification=recon.diagnostic_classification,
+            reaction_state=recon.reaction_state,
+            dsp_calibration_profile=recon.dsp_calibration_profile
         )
         raw_candidates.append(candidate)
         clip_index += 1

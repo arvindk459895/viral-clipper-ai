@@ -79,8 +79,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: ViralShorts,Arial,56,&H00FFFFFF,&H0033FFFF,&H00000000,&H80000000,1,0,0,0,100,100,2,0,1,6,3,2,60,60,320,1
-Style: TopHeader,Arial,54,&H00FFFFFF,&H0000FFFF,&H00000000,&HA0000000,1,0,0,0,100,100,2,0,1,6,3,8,60,60,240,1
+Style: ViralShorts,Nirmala UI,56,&H00FFFFFF,&H0033FFFF,&H00000000,&H80000000,1,0,0,0,100,100,2,0,1,6,3,2,60,60,320,1
+Style: TopHeader,Nirmala UI,54,&H00FFFFFF,&H0000FFFF,&H00000000,&HA0000000,1,0,0,0,100,100,2,0,1,6,3,8,60,60,240,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

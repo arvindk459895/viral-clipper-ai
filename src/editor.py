@@ -40,7 +40,7 @@ def render_short_clip(
     Displays persistent top header banner in upper blurred area throughout entire duration.
     Composites looped reaction memes and mixes audio sound effects on punchline beats.
     """
-    clip_dur = max(1.0, candidate.end_time - candidate.start_time)
+    clip_dur = max(1.0, candidate.duration if getattr(candidate, "compression_applied", False) else (candidate.end_time - candidate.start_time))
     safe_id = sanitize_filename(candidate.clip_id)
     style_suffix_map = {
         "clean": "clean",

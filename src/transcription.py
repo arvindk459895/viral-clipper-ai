@@ -153,16 +153,33 @@ def parse_vtt_or_srt_subtitles(
     """
     Parses VTT or SRT subtitle files directly into a TranscriptResult with
     accurate segments and distributed word-level timestamps in milliseconds.
+    Cleans rolling YouTube auto-captions, strips sound effect bracket annotations,
+    and accurately detects Hindi, Hinglish, or English.
     """
     path = Path(subtitle_path)
     if not path.exists():
         raise FileNotFoundError(f"Subtitle file not found: {subtitle_path}")
 
     content = path.read_text(encoding='utf-8', errors='replace')
+    
+    # 1. Detect language from VTT header or path
+    detected_lang = "en"
+    header_lang_match = re.search(r'(?i)Language:\s*([a-zA-Z\-]+)', content[:500])
+    if header_lang_match:
+        hl = header_lang_match.group(1).lower()
+        if "hi" in hl:
+            detected_lang = "hi"
+        elif "en" in hl:
+            detected_lang = "en"
+    elif "hi" in path.name.lower():
+        detected_lang = "hi"
+
+    # Check for Devanagari Unicode characters (U+0900 to U+097F)
+    if re.search(r'[\u0900-\u097F]', content[:3000]):
+        detected_lang = "hi"
+
     raw_blocks = content.replace('\r\n', '\n').split('\n\n')
-    segments: List[TranscriptSegment] = []
-    full_text_list: List[str] = []
-    seg_id = 0
+    cleaned_cues: List[Dict[str, Any]] = []
 
     for b in raw_blocks:
         lines = [l.strip() for l in b.splitlines() if l.strip()]
@@ -171,40 +188,67 @@ def parse_vtt_or_srt_subtitles(
                 parts = line.split('-->')
                 st = parse_time_string(parts[0])
                 en = parse_time_string(parts[1].split()[0])
+                if en - st < 0.15:
+                    break
                 text_lines = lines[idx+1:]
                 raw_text = ' '.join(text_lines)
                 clean_text = re.sub(r'<[^>]+>', '', raw_text)
+                clean_text = re.sub(r'\[[^\]]+\]', '', clean_text)  # Remove [हौसला...], [तालियां], [Music]
                 clean_text = html.unescape(clean_text)
                 clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-                if clean_text:
-                    words_raw = clean_text.split()
-                    w_dur = (en - st) / max(1, len(words_raw))
-                    words = []
-                    for w_i, w in enumerate(words_raw):
-                        words.append(TranscriptWord(
-                            word=w,
-                            start=round(st + w_i * w_dur, 2),
-                            end=round(st + (w_i + 1) * w_dur, 2),
-                            probability=1.0
-                        ))
-                    segments.append(TranscriptSegment(
-                        id=seg_id,
-                        start=round(st, 2),
-                        end=round(en, 2),
-                        text=clean_text,
-                        words=words,
-                        language="en"
-                    ))
-                    full_text_list.append(clean_text)
-                    seg_id += 1
+                if not clean_text:
+                    break
+
+                # Deduplicate repeated rolling YouTube auto-caption cues
+                if cleaned_cues:
+                    prev = cleaned_cues[-1]
+                    if clean_text == prev['text']:
+                        prev['end'] = max(prev['end'], en)
+                        break
+                    if clean_text.startswith(prev['text']) and len(clean_text) > len(prev['text']):
+                        if st <= prev['end'] + 0.6:
+                            prev['text'] = clean_text
+                            prev['end'] = en
+                            break
+                    if prev['text'].startswith(clean_text) and st <= prev['end']:
+                        break
+
+                cleaned_cues.append({'start': st, 'end': en, 'text': clean_text})
                 break
+
+    segments: List[TranscriptSegment] = []
+    full_text_list: List[str] = []
+
+    for seg_id, cue in enumerate(cleaned_cues):
+        st = cue['start']
+        en = cue['end']
+        clean_text = cue['text']
+        words_raw = clean_text.split()
+        w_dur = (en - st) / max(1, len(words_raw))
+        words = []
+        for w_i, w in enumerate(words_raw):
+            words.append(TranscriptWord(
+                word=w,
+                start=round(st + w_i * w_dur, 2),
+                end=round(st + (w_i + 1) * w_dur, 2),
+                probability=1.0
+            ))
+        segments.append(TranscriptSegment(
+            id=seg_id,
+            start=round(st, 2),
+            end=round(en, 2),
+            text=clean_text,
+            words=words,
+            language=detected_lang
+        ))
+        full_text_list.append(clean_text)
 
     detected_dur = fallback_duration or (segments[-1].end if segments else 30.0)
     if segments and segments[-1].end > detected_dur:
         detected_dur = segments[-1].end
 
     return TranscriptResult(
-        language="en",
+        language=detected_lang,
         duration=round(detected_dur, 2),
         segments=segments,
         full_text=" ".join(full_text_list)

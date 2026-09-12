@@ -7,7 +7,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, List
 from pydantic import BaseModel, Field
 import yt_dlp
 
@@ -189,20 +189,50 @@ def download_video_and_audio(
         if not success or not audio_path.exists() or audio_path.stat().st_size == 0:
             raise YouTubeIngestionError(f"Audio extraction from downloaded video failed: {err}")
 
+def select_best_subtitle_file(sub_files: List[Path], prefer_hindi: bool = True) -> Optional[Path]:
+    """
+    Selects the best matching subtitle file from a list of candidates.
+    Prioritizes Hindi/Hinglish (hi, hi-Latn) over English (en-IN, en) for Indian/Hindi comedy,
+    avoiding poor English auto-translations on Hindi dialogue.
+    """
+    if not sub_files:
+        return None
+
+    def _priority(p: Path) -> int:
+        name = p.name.lower()
+        if prefer_hindi:
+            if ".hi." in name or "_hi." in name or "-hi." in name or "hi-latn" in name:
+                return 0
+            if "en-in" in name:
+                return 1
+            if ".en." in name or "_en." in name:
+                return 2
+        else:
+            if "en-in" in name or ".en." in name or "_en." in name:
+                return 0
+            if ".hi." in name or "_hi." in name:
+                return 1
+        return 5
+
+    sorted_subs = sorted(sub_files, key=_priority)
+    return sorted_subs[0]
+
+
     # Check or download YouTube subtitles (.vtt or .srt)
     subtitle_path = None
     existing_subs = list(out_dir.glob(f"{meta.video_id}*.vtt")) + list(out_dir.glob(f"{meta.video_id}*.srt"))
-    if existing_subs:
-        subtitle_path = str(existing_subs[0])
+    best_existing = select_best_subtitle_file(existing_subs)
+    if best_existing:
+        subtitle_path = str(best_existing)
         if progress_cb:
-            progress_cb(f"Found YouTube subtitles: {Path(subtitle_path).name}")
+            progress_cb(f"Found YouTube subtitles ({Path(subtitle_path).name})")
     else:
         try:
             sub_opts = {
                 'skip_download': True,
                 'writesubtitles': True,
                 'writeautomaticsub': True,
-                'subtitleslangs': ['en-IN', 'en', 'hi'],
+                'subtitleslangs': ['hi', 'hi-Latn', 'en-IN', 'en'],
                 'subtitlesformat': 'vtt/srt/best',
                 'outtmpl': str(out_dir / f"{meta.video_id}_sub.%(ext)s"),
                 'quiet': True,
@@ -212,10 +242,11 @@ def download_video_and_audio(
             with yt_dlp.YoutubeDL(sub_opts) as ydl:
                 ydl.download([url])
             found_subs = list(out_dir.glob(f"{meta.video_id}*.vtt")) + list(out_dir.glob(f"{meta.video_id}*.srt"))
-            if found_subs:
-                subtitle_path = str(found_subs[0])
+            best_found = select_best_subtitle_file(found_subs)
+            if best_found:
+                subtitle_path = str(best_found)
                 if progress_cb:
-                    progress_cb(f"Downloaded YouTube subtitles: {Path(subtitle_path).name}")
+                    progress_cb(f"Downloaded YouTube subtitles ({Path(subtitle_path).name})")
         except Exception:
             pass
 

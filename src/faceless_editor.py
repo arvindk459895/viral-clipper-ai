@@ -445,10 +445,12 @@ def render_faceless_commentary_short(
         except Exception:
             pass
 
-        # Dynamic YouTube Shorts Duration Budget (Max 58.0s to strictly stay within 60s limit)
-        MAX_TOTAL_SHORT_DUR = 58.0
+        # Dynamic YouTube Shorts Duration Budget: Minimum 50s up to 59s
+        TARGET_MIN_SHORT_DUR = 50.0
+        TARGET_MAX_SHORT_DUR = 58.5
         ai_overhead = round(hook_dur + meme_dur + outro_dur, 2)
-        max_source_budget = max(20.0, round(MAX_TOTAL_SHORT_DUR - ai_overhead, 2))
+        min_source_budget = max(10.0, round(TARGET_MIN_SHORT_DUR - ai_overhead, 2))
+        max_source_budget = round(TARGET_MAX_SHORT_DUR - ai_overhead, 2)
 
         # Calculate Scene Boundaries: Guarantee complete story setup through punchline and clean resolution
         cand_start = candidate.start_time
@@ -465,7 +467,7 @@ def render_faceless_commentary_short(
         # Find all sentence endings or speech pauses after punch_t
         post_punch_segs = [
             s for s in transcript_segments
-            if s.end >= punch_t + 1.5 and s.start <= cand_end + 10.0
+            if s.end >= punch_t + 1.5 and s.start <= cand_end + 12.0
         ]
 
         # Prioritize clean thought ends after punch_t that fit within the Shorts budget
@@ -488,18 +490,14 @@ def render_faceless_commentary_short(
         if total_vid_dur and total_vid_dur > 2.0:
             scene_end = min(scene_end, round(total_vid_dur - 0.1, 2))
 
-        # Budget source duration: Start from cand_start, or if the scene is long, ensure setup has at least 8-12s
-        req_dur = round(scene_end - cand_start, 2)
-        if req_dur <= max_source_budget:
-            scene_start = cand_start
-        else:
-            # If the entire story exceeds budget, back up from punch_t to give ample setup
-            raw_start = max(cand_start, round(scene_end - max_source_budget, 2))
-            valid_starts = [
-                s.start for s in transcript_segments
-                if raw_start - 2.0 <= s.start <= punch_t - 5.0
-            ]
-            scene_start = round(valid_starts[0], 2) if valid_starts else raw_start
+        # Respect narrative event reconstruction: preserve full reaction and laughter decay
+        scene_start = cand_start
+        max_valid_end = round(total_vid_dur - 0.1, 2) if total_vid_dur else max(scene_end, cand_end)
+        scene_end = min(max_valid_end, max(scene_end, cand_end))
+
+        # Ensure bounds strictly respect source budget ceiling
+        if (scene_end - scene_start) > max_source_budget:
+            scene_start = max(cand_start, round(scene_end - max_source_budget, 2))
 
         # Snap scene_start and scene_end cleanly to speech boundaries so words/sentences are never sliced mid-syllable
         for idx, s in enumerate(transcript_segments):
@@ -511,6 +509,9 @@ def render_faceless_commentary_short(
             if s.start < scene_end < s.end:
                 scene_end = round(s.end, 2)
                 break
+
+        if (scene_end - scene_start) > max_source_budget:
+            scene_start = round(scene_end - max_source_budget, 2)
 
         # Split into Beat 2 (Setup Dialogue) and Beat 3 (Punchline & Reaction Payoff)
         # Find natural transcript segment boundary right before punchline

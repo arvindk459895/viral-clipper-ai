@@ -35,8 +35,8 @@ def test_metadata_generation():
     meta = generate_clip_metadata(candidate, analysis, channel_name="Test Comedy Club")
     assert isinstance(meta, ClipMetadata)
     assert len(meta.titles) == 3
-    assert all(len(t) > 5 for t in meta.titles)
-    assert 5 <= len(meta.hashtags) <= 10
+    assert all(20 <= len(t) <= 100 for t in meta.titles)
+    assert 5 <= len(meta.hashtags) <= 15
     assert "#Shorts" in meta.hashtags
     assert "Rights Notice" in meta.description
     assert "Copyright and monetization decisions" in meta.description

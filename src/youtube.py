@@ -41,7 +41,8 @@ def extract_metadata(url: str) -> VideoMetadata:
         'skip_download': True,
         'quiet': True,
         'no_warnings': True,
-        'extract_flat': False,
+        'extract_flat': True,
+        'check_formats': False,
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'ios', 'web']
@@ -61,8 +62,8 @@ def extract_metadata(url: str) -> VideoMetadata:
                 video_id=info.get('id', 'unknown_id'),
                 title=info.get('title', 'Untitled Video'),
                 channel=info.get('uploader') or info.get('channel', 'Unknown Channel'),
-                duration=float(info.get('duration', 0.0)),
-                thumbnail_url=info.get('thumbnail'),
+                duration=float(info.get('duration') or 0.0),
+                thumbnail_url=info.get('thumbnail') or (info.get('thumbnails', [{}])[-1].get('url') if info.get('thumbnails') else None),
                 upload_date=info.get('upload_date'),
                 description=(info.get('description') or '')[:300],
                 view_count=info.get('view_count', 0)

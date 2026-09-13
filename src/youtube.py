@@ -185,27 +185,32 @@ def download_video_and_audio(
         if progress_cb:
             progress_cb(f"Found existing downloaded video ({video_path.stat().st_size / (1024*1024):.1f} MB)")
     else:
-        # Strategy list: Try android/ios first, then web with resilient fallback
+        # Strategy list: Try various player clients and permissive format selectors
         strategies = [
+            # Strategy 1: Default yt-dlp auto format selection (catches visionos, m3u8_native, etc.)
             {
-                'format': f'bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/18/best',
-                'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
+                'format': f'bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/bestvideo+bestaudio/best',
+                'extractor_args': {}
             },
-            {
-                'format': '18/best[height<=720]/best',
-                'extractor_args': {'youtube': {'player_client': ['android']}}
-            },
-            {
-                'format': '18/best[height<=720]/best',
-                'extractor_args': {'youtube': {'player_client': ['ios']}}
-            },
-            {
-                'format': f'bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/best',
-                'extractor_args': {'youtube': {'player_client': ['mweb', 'web_creator']}}
-            },
+            # Strategy 2: visionos & web client with m3u8 / https streams
             {
                 'format': 'best',
-                'extractor_args': {'youtube': {'player_client': ['web']}}
+                'extractor_args': {'youtube': {'player_client': ['visionos', 'web']}}
+            },
+            # Strategy 3: android/ios with progressive 18 or best available
+            {
+                'format': 'best/18',
+                'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
+            },
+            # Strategy 4: mweb
+            {
+                'format': 'best',
+                'extractor_args': {'youtube': {'player_client': ['mweb']}}
+            },
+            # Strategy 5: Absolute fallback: any video stream available
+            {
+                'format': '(bestvideo+bestaudio/best)[protocol^=http]/best',
+                'extractor_args': {}
             }
         ]
 

@@ -284,18 +284,13 @@ def transcribe_audio(
 
     try:
         from faster_whisper import WhisperModel
-        # Use lightweight model with 2 cpu threads to fit safely within Streamlit Cloud 1GB RAM limits
-        model = WhisperModel(
-            "tiny" if model_size == "base" else model_size,
-            device="cpu",
-            compute_type="int8",
-            cpu_threads=2
-        )
+        # Use CPU with INT8 or float32 for maximum compatibility
+        model = WhisperModel(model_size, device="cpu", compute_type="int8")
         segments_gen, info = model.transcribe(
             str(path),
             language=language,
             word_timestamps=True,
-            beam_size=1,
+            beam_size=5,
             vad_filter=True
         )
 

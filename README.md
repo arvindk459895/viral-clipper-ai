@@ -1,3 +1,14 @@
+---
+title: Viral Clipper AI Studio
+emoji: 🎬
+colorFrom: red
+colorTo: purple
+sdk: streamlit
+sdk_version: 1.40.0
+app_file: app.py
+pinned: false
+---
+
 # 🎬 ViralClipper AI Studio
 
 > **Automated AI Vertical Shorts Studio for Comedy, Podcasts & Standup with 1-Click YouTube Publishing**
